@@ -1,0 +1,23 @@
+[package]
+name = "lldb-sys"
+version = "0.0.19"
+authors = ["Bruce Mitchener <bruce.mitchener@gmail.com>"]
+license = "MIT/Apache-2.0"
+readme = "README.md"
+description = "Raw bindings to the LLDB C++ API. LLDB is the debugger that is part of the LLVM project and is the default system debugger on Mac OS X. Building and using this is currently slightly tricky, so be sure to see the README.md in the repository."
+keywords = ["lldb", "debugger"]
+categories = ["external-ffi-bindings", "development-tools::debugging"]
+homepage = "https://github.com/endoli/lldb-sys.rs"
+repository = "https://github.com/endoli/lldb-sys.rs"
+build = "build.rs"
+
+[[example]]
+name = "barebones"
+path = "examples/barebones/main.rs"
+
+[dependencies]
+libc = "0.2"
+bitflags = "1"
+
+[build-dependencies]
+cc = "1"
