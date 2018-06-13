@@ -13,5 +13,9 @@
         "bleh": [
             "${dbgconfig:foo}", "${dbgconfig:bar}"
         ]
-    }
+    },
+    "lldb.executable_env": {
+        "RUST_BACKTRACE": "1"
+    },
+    "lldb.executable": "/home/chega/NW/vscode-lldb/target/debug/codelldb2"
 }

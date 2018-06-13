@@ -1,0 +1,6 @@
+[workspace]
+members = ["adapter2"]
+
+[patch.crates-io]
+lldb = { path = "adapter2/deps/lldb.rs" }
+lldb-sys = { path = "adapter2/deps/lldb-sys.rs" }

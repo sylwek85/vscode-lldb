@@ -17,6 +17,24 @@
 			]
 		},
 		{
+			"name": "attach to adapter2",
+			"type": "lldb",
+			"request": "attach",
+			"program": "/home/chega/NW/vscode-lldb/target/debug/codelldb2",
+			"waitFor": true
+		},
+		{
+			"name": "custom attach to adapter2",
+			"type": "lldb",
+			"request": "custom",
+			"targetCreateCommands": [
+				"target create /home/chega/NW/vscode-lldb/target/debug/codelldb2"
+			],
+			"processCreateCommands": [
+				"attach codelldb2"
+			],
+		},
+		{
 			"name": "attach to adapter",
 			"type": "python",
 			"request": "attach",

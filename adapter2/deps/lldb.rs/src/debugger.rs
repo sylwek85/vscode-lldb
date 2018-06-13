@@ -7,6 +7,7 @@
 use std::ffi::{CStr, CString};
 use std::fmt;
 use std::ptr;
+use super::commandinterpreter::SBCommandInterpreter;
 use super::error::SBError;
 use super::platform::SBPlatform;
 use super::stream::SBStream;
