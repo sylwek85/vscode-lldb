@@ -1,19 +1,41 @@
 use debug_protocol::*;
-use std::error::Error;
+use failure;
 use lldb;
+use std::option;
+use std::sync::mpsc::SyncSender;
 
-type Result<T> = ::std::result::Result<T, Box<Error>>;
+#[derive(Fail, Debug)]
+enum Error {
+    #[fail(display = "Whoops! Something that was supposed to have been initialized, wasn't.")]
+    NotInitialized,
+    #[fail(display = "{}", _0)]
+    SBError(String),
+}
+impl From<option::NoneError> for Error {
+    fn from(_: option::NoneError) -> Self {
+        Error::NotInitialized
+    }
+}
+impl From<lldb::SBError> for Error {
+    fn from(sberr: lldb::SBError) -> Self {
+        Error::SBError(sberr.error_string().into())
+    }
+}
 
-#[derive(Default)]
 pub struct DebugSession {
+    send_message: SyncSender<ProtocolMessage>,
     debugger: Option<lldb::SBDebugger>,
+    target: Option<lldb::SBTarget>,
     launch_args: Option<LaunchRequestArguments>,
 }
 
 impl DebugSession {
-    pub fn new() -> Self {
+    pub fn new(send_message: SyncSender<ProtocolMessage>) -> Self {
         DebugSession {
-            ..Default::default()
+            send_message,
+            debugger: None,
+            target: None,
+            launch_args: None,
         }
     }
 
@@ -28,7 +50,7 @@ impl DebugSession {
     fn handle_response(&mut self, response: Response) {}
 
     fn handle_request(&mut self, request: Request) {
-        let body = match request.arguments {
+        let response_body = match request.arguments {
             RequestArguments::initialize(args) => self.handle_initialize(args),
             RequestArguments::launch(args) => self.handle_launch(args),
             RequestArguments::configurationDone(args) => self.handle_configuration_done(args),
@@ -36,7 +58,7 @@ impl DebugSession {
         };
     }
 
-    fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<ResponseBody> {
+    fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<ResponseBody, Error> {
         self.debugger = Some(lldb::SBDebugger::create(true));
         let caps = Capabilities {
             supports_configuration_done_request: Some(true),
@@ -56,20 +78,15 @@ impl DebugSession {
         Ok(ResponseBody::initialize(caps))
     }
 
-    fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody> {
+    fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody, Error> {
+        self.target = Some(self.debugger.as_ref()?.create_target(&args.program, None, None, false)?);
         self.launch_args = Some(args);
-        self.target = self.debugger?.create_target(&args.program, None, None, false)?;
         self.send_event(EventBody::initialized);
         Ok(ResponseBody::Async)
     }
 
-    fn handle_configuration_done(
-        &mut self,
-        args: ConfigurationDoneArguments,
-    ) -> Result<ResponseBody> {
-        if let Some(ref launch_args) = self.launch_args {
-
-        }
+    fn handle_configuration_done(&mut self, args: ConfigurationDoneArguments) -> Result<ResponseBody, Error> {
+        if let Some(ref launch_args) = self.launch_args {}
         Ok(ResponseBody::configurationDone)
     }
 

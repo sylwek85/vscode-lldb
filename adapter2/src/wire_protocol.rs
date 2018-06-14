@@ -1,9 +1,9 @@
+use debug_protocol::ProtocolMessage;
+use serde_json;
 use std::error::Error;
 use std::io;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::thread;
-use debug_protocol::ProtocolMessage;
-use serde_json;
 
 pub struct DebugServer {
     sender: thread::JoinHandle<()>,
@@ -12,8 +12,7 @@ pub struct DebugServer {
 
 impl DebugServer {
     pub fn new(
-        mut reader: Box<io::BufRead + Send>,
-        mut writer: Box<io::Write + Send>,
+        mut reader: Box<io::BufRead + Send>, mut writer: Box<io::Write + Send>,
     ) -> (Self, Receiver<ProtocolMessage>, SyncSender<ProtocolMessage>) {
         let (inbound_send, inbound_recv) = sync_channel::<ProtocolMessage>(100);
         let (outbound_send, outbound_recv) = sync_channel::<ProtocolMessage>(100);

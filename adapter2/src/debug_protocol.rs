@@ -1,16 +1,14 @@
 #![allow(non_camel_case_types)]
 
 pub use debugserver_types::{
-    AttachRequestArguments, BreakpointEventBody, Capabilities, CompletionsArguments,
-    CompletionsResponseBody, ConfigurationDoneArguments, ContinueArguments, ContinueResponseBody,
-    ContinuedEventBody, DisconnectArguments, EvaluateArguments, EvaluateResponseBody,
-    ExitedEventBody, InitializeRequestArguments, ModuleEventBody,
-    NextArguments, OutputEventBody, PauseArguments, ScopesArguments, ScopesResponseBody,
-    SetBreakpointsArguments, SetBreakpointsResponseBody, SetExceptionBreakpointsArguments,
-    SetFunctionBreakpointsArguments, SetVariableArguments, SetVariableResponseBody,
-    SourceArguments, SourceResponseBody, StackTraceArguments, StackTraceResponseBody,
-    StepBackArguments, StepInArguments, StepOutArguments, StoppedEventBody, TerminatedEventBody,
-    ThreadEventBody, ThreadsResponseBody, VariablesArguments, VariablesResponseBody,
+    AttachRequestArguments, BreakpointEventBody, Capabilities, CompletionsArguments, CompletionsResponseBody,
+    ConfigurationDoneArguments, ContinueArguments, ContinueResponseBody, ContinuedEventBody, DisconnectArguments,
+    EvaluateArguments, EvaluateResponseBody, ExitedEventBody, InitializeRequestArguments, ModuleEventBody,
+    NextArguments, OutputEventBody, PauseArguments, ScopesArguments, ScopesResponseBody, SetBreakpointsArguments,
+    SetBreakpointsResponseBody, SetExceptionBreakpointsArguments, SetFunctionBreakpointsArguments,
+    SetVariableArguments, SetVariableResponseBody, SourceArguments, SourceResponseBody, StackTraceArguments,
+    StackTraceResponseBody, StepBackArguments, StepInArguments, StepOutArguments, StoppedEventBody,
+    TerminatedEventBody, ThreadEventBody, ThreadsResponseBody, VariablesArguments, VariablesResponseBody,
 };
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -122,8 +120,8 @@ pub enum EventBody {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LaunchRequestArguments {
     #[serde(rename = "noDebug")]
-    no_debug: bool,
-    program: String,
+    pub no_debug: bool,
+    pub program: String,
 }
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -147,9 +145,7 @@ fn test2() {
 #[test]
 fn test3() {
     parse(br#"{"type":"event","event":"initialized","seq":0}"#);
-    parse(
-        br#"{"body":{"reason":"started","threadId":7537},"type":"event","event":"thread","seq":0}"#,
-    );
+    parse(br#"{"body":{"reason":"started","threadId":7537},"type":"event","event":"thread","seq":0}"#);
 }
 
 #[test]

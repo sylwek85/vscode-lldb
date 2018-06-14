@@ -46,6 +46,18 @@
     },
     {
       "type": "shell",
+      "label": "cargo check",
+      "command": "cargo",
+      "args": [
+        "check"
+      ],
+      "problemMatcher": [
+        "$rustc"
+      ],
+      "group": "build"
+    },
+    {
+      "type": "shell",
       "label": "cargo test",
       "command": "cargo",
       "args": [
@@ -55,6 +67,6 @@
         "$rustc"
       ],
       "group": "test"
-    },
+    }
   ]
 }

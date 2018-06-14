@@ -1,12 +1,15 @@
 #![allow(unused)]
+#![feature(try_trait)]
 
 #[macro_use]
 extern crate serde_derive;
-
-extern crate debugserver_types;
-extern crate lldb;
 extern crate serde;
 extern crate serde_json;
+#[macro_use]
+extern crate failure_derive;
+extern crate debugserver_types;
+extern crate failure;
+extern crate lldb;
 
 use std::io;
 use std::net;
@@ -28,7 +31,7 @@ fn main() {
     let (debug_server, recv_message, send_message) =
         wire_protocol::DebugServer::new(Box::new(io::BufReader::new(conn)), Box::new(conn2));
 
-    let mut session = debug_session::DebugSession::new();
+    let mut session = debug_session::DebugSession::new(send_message);
     loop {
         let message = recv_message.recv().unwrap();
         session.handle_message(message);
