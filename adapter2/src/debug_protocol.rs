@@ -1,6 +1,17 @@
 #![allow(non_camel_case_types)]
 
-use debugserver_types::*;
+pub use debugserver_types::{
+    AttachRequestArguments, BreakpointEventBody, Capabilities, CompletionsArguments,
+    CompletionsResponseBody, ConfigurationDoneArguments, ContinueArguments, ContinueResponseBody,
+    ContinuedEventBody, DisconnectArguments, EvaluateArguments, EvaluateResponseBody,
+    ExitedEventBody, InitializeRequestArguments, LaunchRequestArguments, ModuleEventBody,
+    NextArguments, OutputEventBody, PauseArguments, ScopesArguments, ScopesResponseBody,
+    SetBreakpointsArguments, SetBreakpointsResponseBody, SetExceptionBreakpointsArguments,
+    SetFunctionBreakpointsArguments, SetVariableArguments, SetVariableResponseBody,
+    SourceArguments, SourceResponseBody, StackTraceArguments, StackTraceResponseBody,
+    StepBackArguments, StepInArguments, StepOutArguments, StoppedEventBody, TerminatedEventBody,
+    ThreadEventBody, ThreadsResponseBody, VariablesArguments, VariablesResponseBody,
+};
 use serde::{Deserialize, Serialize};
 use serde_json;
 
@@ -14,25 +25,25 @@ pub enum ProtocolMessage {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Request {
-    seq: u32,
+    pub seq: u32,
     #[serde(flatten)]
-    arguments: RequestArguments,
+    pub arguments: RequestArguments,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Response {
-    request_seq: u32,
-    success: bool,
-    message: Option<String>,
+    pub request_seq: u32,
+    pub success: bool,
+    pub message: Option<String>,
     #[serde(flatten)]
-    body: ResponseBody,
+    pub body: ResponseBody,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Event {
-    seq: u32,
+    pub seq: u32,
     #[serde(flatten)]
-    body: EventBody,
+    pub body: EventBody,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -67,6 +78,7 @@ pub enum RequestArguments {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "command", content = "body")]
 pub enum ResponseBody {
+    Async,
     initialize(Capabilities),
     launch,
     attach,

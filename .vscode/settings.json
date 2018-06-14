@@ -11,16 +11,6 @@
     },
     "files.insertFinalNewline": true,
     "files.trimTrailingWhitespace": true,
-
-    "lldb.launch.initCommands": [
-        "platform shell echo 'init'"
-    ],
-    "lldb.launch.preRunCommands": [
-        "platform shell echo 'run'"
-    ],
-    "lldb.launch.exitCommands": [
-        "platform shell echo 'exit'"
-    ],
     "lldb.ptvsd": {
         "port": 3000,
         "secret": "CodeLLDB",

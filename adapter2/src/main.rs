@@ -11,12 +11,14 @@ extern crate serde_json;
 use std::io;
 use std::net;
 use std::thread;
+use std::time::Duration;
 
 mod debug_protocol;
+mod debug_session;
 mod wire_protocol;
 
 fn main() {
-    let listener = net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = net::TcpListener::bind("127.0.0.1:4711").unwrap();
     let addr = listener.local_addr().unwrap();
     println!("Listening on port {}", addr.port());
     let (conn, addr) = listener.accept().unwrap();
@@ -26,9 +28,9 @@ fn main() {
     let (debug_server, recv_message, send_message) =
         wire_protocol::DebugServer::new(Box::new(io::BufReader::new(conn)), Box::new(conn2));
 
-    let message = recv_message.recv().unwrap();
+    let mut session = debug_session::DebugSession::new();
     loop {
-        println!("###");
-        thread::sleep_ms(1000);
+        let message = recv_message.recv().unwrap();
+        session.handle_message(message);
     }
 }

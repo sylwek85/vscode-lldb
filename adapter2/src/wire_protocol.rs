@@ -1,9 +1,9 @@
-use debug_protocol::ProtocolMessage;
-use serde_json;
 use std::error::Error;
 use std::io;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::thread;
+use debug_protocol::ProtocolMessage;
+use serde_json;
 
 pub struct DebugServer {
     sender: thread::JoinHandle<()>,
@@ -30,13 +30,9 @@ impl DebugServer {
                     line.clear();
                     reader.read_line(&mut line);
                     buffer.resize(content_len, 0);
-                    println!("111");
                     reader.read_exact(&mut buffer).unwrap();
-                    println!("222");
                     let message = serde_json::from_slice(&buffer[..]).unwrap();
-                    println!("333");
                     inbound_send.send(message);
-                    println!("444");
                 }
             }
         });

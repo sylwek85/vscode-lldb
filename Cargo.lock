@@ -29,7 +29,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "codelldb2"
 version = "0.1.0"
 dependencies = [
- "debugserver-types 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "debugserver-types 0.3.0",
  "lldb 0.0.7",
  "serde 1.0.66 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.66 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -38,10 +38,9 @@ dependencies = [
 
 [[package]]
 name = "debugserver-types"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+version = "0.3.0"
 dependencies = [
- "schemafy 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "schemafy 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.66 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.66 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.20 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -153,13 +152,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "schemafy"
-version = "0.4.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "Inflector 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools 0.5.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "quote 0.3.15 (registry+https://github.com/rust-lang/crates.io-index)",
- "schemafy_snapshot 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "schemafy_snapshot 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.66 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.66 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.20 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -167,7 +166,7 @@ dependencies = [
 
 [[package]]
 name = "schemafy_snapshot"
-version = "0.4.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "Inflector 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -255,7 +254,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum aho-corasick 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)" = "ca972c2ea5f742bfce5687b9aef75506a764f61d37f8f649047846a9686ddb66"
 "checksum bitflags 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "d0c54bb8f454c567f21197eefcdbf5679d0bd99f2ddbe52e84c77061952e6789"
 "checksum cc 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)" = "49ec142f5768efb5b7622aebc3fdbdbb8950a4b9ba996393cb76ef7466e8747d"
-"checksum debugserver-types 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "75a09c474eda6afb5706b8cda65bd5394a22349b883241df8177589fe7506077"
 "checksum dtoa 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "09c3753c3db574d215cba4ea76018483895d7bff25a31b49ba45db21c48e50ab"
 "checksum either 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3be565ca5c557d7f59e7cfcf1844f9e3033650c929c6566f511e8005f205c1d0"
 "checksum itertools 0.5.10 (registry+https://github.com/rust-lang/crates.io-index)" = "4833d6978da405305126af4ac88569b5d71ff758581ce5a987dbfa3755f694fc"
@@ -269,8 +267,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum quote 0.6.3 (registry+https://github.com/rust-lang/crates.io-index)" = "e44651a0dc4cdd99f71c83b561e221f714912d11af1a4dff0631f923d53af035"
 "checksum regex 0.1.80 (registry+https://github.com/rust-lang/crates.io-index)" = "4fd4ace6a8cf7860714a2c2280d6c1f7e6a413486c13298bbc86fd3da019402f"
 "checksum regex-syntax 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)" = "f9ec002c35e86791825ed294b50008eea9ddfc8def4420124fbc6b08db834957"
-"checksum schemafy 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "b45aa8050c489685f4d26285365a20f3aaa6cab3cf68fe9f57498d032bd2c1f9"
-"checksum schemafy_snapshot 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "8c41ae5ab0e8472188bf3755b78a4c8ae1f5773e329c98f1ca61b86e6a7ca3a8"
+"checksum schemafy 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5b4cf1a13f2d7d52399c58a59344f15861fed726d7005220de713022476e9147"
+"checksum schemafy_snapshot 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "2c015d81fc5c47eec4a65ad666990ac2c29a0d035cadcf618075cbf7925019cd"
 "checksum serde 1.0.66 (registry+https://github.com/rust-lang/crates.io-index)" = "e9a2d9a9ac5120e0f768801ca2b58ad6eec929dc9d1d616c162f208869c2ce95"
 "checksum serde_derive 1.0.66 (registry+https://github.com/rust-lang/crates.io-index)" = "0a90213fa7e0f5eac3f7afe2d5ff6b088af515052cc7303bd68c7e3b91a3fb79"
 "checksum serde_json 1.0.20 (registry+https://github.com/rust-lang/crates.io-index)" = "fc97cccc2959f39984524026d760c08ef0dd5f0f5948c8d31797dbfae458c875"
