@@ -4,7 +4,7 @@ pub use debugserver_types::{
     AttachRequestArguments, BreakpointEventBody, Capabilities, CompletionsArguments,
     CompletionsResponseBody, ConfigurationDoneArguments, ContinueArguments, ContinueResponseBody,
     ContinuedEventBody, DisconnectArguments, EvaluateArguments, EvaluateResponseBody,
-    ExitedEventBody, InitializeRequestArguments, LaunchRequestArguments, ModuleEventBody,
+    ExitedEventBody, InitializeRequestArguments, ModuleEventBody,
     NextArguments, OutputEventBody, PauseArguments, ScopesArguments, ScopesResponseBody,
     SetBreakpointsArguments, SetBreakpointsResponseBody, SetExceptionBreakpointsArguments,
     SetFunctionBreakpointsArguments, SetVariableArguments, SetVariableResponseBody,
@@ -117,6 +117,13 @@ pub enum EventBody {
     continued(ContinuedEventBody),
     exited(ExitedEventBody),
     terminated(TerminatedEventBody),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LaunchRequestArguments {
+    #[serde(rename = "noDebug")]
+    no_debug: bool,
+    program: String,
 }
 
 ////////////////////////////////////////////////////////////////////////////////////

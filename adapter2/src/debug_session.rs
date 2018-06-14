@@ -1,10 +1,12 @@
 use debug_protocol::*;
 use std::error::Error;
+use lldb;
 
 type Result<T> = ::std::result::Result<T, Box<Error>>;
 
 #[derive(Default)]
 pub struct DebugSession {
+    debugger: Option<lldb::SBDebugger>,
     launch_args: Option<LaunchRequestArguments>,
 }
 
@@ -35,6 +37,7 @@ impl DebugSession {
     }
 
     fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<ResponseBody> {
+        self.debugger = Some(lldb::SBDebugger::create(true));
         let caps = Capabilities {
             supports_configuration_done_request: Some(true),
             supports_evaluate_for_hovers: Some(true),
@@ -55,14 +58,20 @@ impl DebugSession {
 
     fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody> {
         self.launch_args = Some(args);
+        self.target = self.debugger?.create_target(&args.program, None, None, false)?;
         self.send_event(EventBody::initialized);
         Ok(ResponseBody::Async)
     }
 
-    fn handle_configuration_done(&mut self, args: ConfigurationDoneArguments) -> Result<ResponseBody> {
+    fn handle_configuration_done(
+        &mut self,
+        args: ConfigurationDoneArguments,
+    ) -> Result<ResponseBody> {
+        if let Some(ref launch_args) = self.launch_args {
+
+        }
         Ok(ResponseBody::configurationDone)
     }
 
-    fn send_event(&mut self, event: EventBody) {
-    }
+    fn send_event(&mut self, event: EventBody) {}
 }
