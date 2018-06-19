@@ -1,5 +1,5 @@
 use debug_protocol::ProtocolMessage;
-use serde_json;
+use serde_json::{self, Value};
 use std::error::Error;
 use std::io;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
@@ -16,6 +16,7 @@ impl DebugServer {
     ) -> (Self, Receiver<ProtocolMessage>, SyncSender<ProtocolMessage>) {
         let (inbound_send, inbound_recv) = sync_channel::<ProtocolMessage>(100);
         let (outbound_send, outbound_recv) = sync_channel::<ProtocolMessage>(100);
+        let outbound_send2 = outbound_send.clone();
 
         let receiver = thread::spawn(move || {
             let mut buffer: Vec<u8> = vec![];
@@ -30,8 +31,19 @@ impl DebugServer {
                     reader.read_line(&mut line);
                     buffer.resize(content_len, 0);
                     reader.read_exact(&mut buffer).unwrap();
-                    let message = serde_json::from_slice(&buffer[..]).unwrap();
-                    inbound_send.send(message);
+                    match serde_json::from_slice(&buffer[..]) {
+                        Ok(message) => {
+                            inbound_send.send(message);
+                        }
+                        Err(err) => {
+                            if (err.is_data()) {
+                                // Try reading as generic JSON value.
+                                if let Ok(msg) = serde_json::from_slice::<Value>(&buffer[..]) {
+                                    inbound_send.send(ProtocolMessage::Unknown(msg));
+                                }
+                            }
+                        }
+                    }
                 }
             }
         });

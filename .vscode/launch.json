@@ -22,6 +22,9 @@
 			"type": "lldb",
 			"request": "launch",
 			"program": "/home/chega/NW/vscode-lldb/target/debug/codelldb2",
+			"sourceLanguages": [
+				"cpp", "rust"
+			]
 		},
 		{
 			"name": "attach to adapter",

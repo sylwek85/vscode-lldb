@@ -10,6 +10,8 @@ extern crate failure_derive;
 extern crate debugserver_types;
 extern crate failure;
 extern crate lldb;
+#[macro_use]
+extern crate log;
 
 use std::io;
 use std::net;

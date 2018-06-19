@@ -10,6 +10,8 @@ enum Error {
     NotInitialized,
     #[fail(display = "{}", _0)]
     SBError(String),
+    #[fail(display = "{}", _0)]
+    UserError(String),
 }
 impl From<option::NoneError> for Error {
     fn from(_: option::NoneError) -> Self {
@@ -41,16 +43,16 @@ impl DebugSession {
 
     pub fn handle_message(&mut self, message: ProtocolMessage) {
         match message {
-            ProtocolMessage::request(request) => self.handle_request(request),
-            ProtocolMessage::response(response) => self.handle_response(response),
-            _ => (),
+            ProtocolMessage::Request(request) => self.handle_request(request),
+            ProtocolMessage::Response(response) => self.handle_response(response),
+            _ => () //warn!("No handler for {} message", message.command);
         };
     }
 
     fn handle_response(&mut self, response: Response) {}
 
     fn handle_request(&mut self, request: Request) {
-        let response_body = match request.arguments {
+        let response = match request.arguments {
             RequestArguments::initialize(args) => self.handle_initialize(args),
             RequestArguments::launch(args) => self.handle_launch(args),
             RequestArguments::configurationDone(args) => self.handle_configuration_done(args),
@@ -59,7 +61,7 @@ impl DebugSession {
     }
 
     fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<ResponseBody, Error> {
-        self.debugger = Some(lldb::SBDebugger::create(true));
+        self.debugger = Some(lldb::SBDebugger::create(false));
         let caps = Capabilities {
             supports_configuration_done_request: Some(true),
             supports_evaluate_for_hovers: Some(true),
@@ -90,5 +92,8 @@ impl DebugSession {
         Ok(ResponseBody::configurationDone)
     }
 
-    fn send_event(&mut self, event: EventBody) {}
+    fn send_event(&mut self, event_body: EventBody) {
+        let event = ProtocolMessage::Event(Event{ seq:0, body: event_body});
+        self.send_message.send(event);
+    }
 }

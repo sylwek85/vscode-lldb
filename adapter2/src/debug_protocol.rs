@@ -16,9 +16,14 @@ use serde_json;
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
 pub enum ProtocolMessage {
-    request(Request),
-    response(Response),
-    event(Event),
+    #[serde(rename = "request")]
+    Request(Request),
+    #[serde(rename = "response")]
+    Response(Response),
+    #[serde(rename = "event")]
+    Event(Event),
+    #[serde(skip)]
+    Unknown(serde_json::Value),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
