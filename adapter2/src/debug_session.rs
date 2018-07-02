@@ -33,6 +33,7 @@ pub struct DebugSession {
 
 impl DebugSession {
     pub fn new(send_message: SyncSender<ProtocolMessage>) -> Self {
+        lldb::SBDebugger::initialize();
         DebugSession {
             send_message,
             debugger: None,
@@ -45,19 +46,34 @@ impl DebugSession {
         match message {
             ProtocolMessage::Request(request) => self.handle_request(request),
             ProtocolMessage::Response(response) => self.handle_response(response),
-            _ => () //warn!("No handler for {} message", message.command);
+            _ => (), //warn!("No handler for {} message", message.command);
         };
     }
 
     fn handle_response(&mut self, response: Response) {}
 
     fn handle_request(&mut self, request: Request) {
-        let response = match request.arguments {
+        let result = match request.arguments {
             RequestArguments::initialize(args) => self.handle_initialize(args),
             RequestArguments::launch(args) => self.handle_launch(args),
             RequestArguments::configurationDone(args) => self.handle_configuration_done(args),
             _ => panic!(),
         };
+        let response = match result {
+            Ok(body) => ProtocolMessage::Response(Response {
+                request_seq: request.seq,
+                success: true,
+                message: None,
+                body: Some(body),
+            }),
+            Err(err) => ProtocolMessage::Response(Response {
+                request_seq: request.seq,
+                success: false,
+                body: None,
+                message: Some(format!("{}", err)),
+            }),
+        };
+        self.send_message.send(response);
     }
 
     fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<ResponseBody, Error> {
@@ -77,13 +93,13 @@ impl DebugSession {
             //supportsStepBack': self.parameters.get('reverseDebugging', False),
             //exception_breakpoint_filters: exc_filters,
         };
+        self.send_event(EventBody::initialized);
         Ok(ResponseBody::initialize(caps))
     }
 
     fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody, Error> {
         self.target = Some(self.debugger.as_ref()?.create_target(&args.program, None, None, false)?);
         self.launch_args = Some(args);
-        self.send_event(EventBody::initialized);
         Ok(ResponseBody::Async)
     }
 
@@ -93,7 +109,10 @@ impl DebugSession {
     }
 
     fn send_event(&mut self, event_body: EventBody) {
-        let event = ProtocolMessage::Event(Event{ seq:0, body: event_body});
+        let event = ProtocolMessage::Event(Event {
+            seq: 0,
+            body: event_body,
+        });
         self.send_message.send(event);
     }
 }

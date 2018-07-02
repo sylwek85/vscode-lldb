@@ -27,6 +27,13 @@ pub enum ProtocolMessage {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct Hren {
+    pub command: String,
+    #[serde(flatten)]
+    pub arguments: RequestArguments,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Request {
     pub seq: u32,
     #[serde(flatten)]
@@ -39,7 +46,7 @@ pub struct Response {
     pub success: bool,
     pub message: Option<String>,
     #[serde(flatten)]
-    pub body: ResponseBody,
+    pub body: Option<ResponseBody>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -125,36 +132,54 @@ pub enum EventBody {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LaunchRequestArguments {
     #[serde(rename = "noDebug")]
-    pub no_debug: bool,
+    pub no_debug: Option<bool>,
     pub program: String,
 }
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-fn parse(s: &[u8]) {
-    let msg = serde_json::from_slice::<ProtocolMessage>(s).unwrap();
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn parse(s: &[u8]) {
+        let msg = serde_json::from_slice::<ProtocolMessage>(s).unwrap();
+    }
 
-#[test]
-fn test1() {
-    parse(br#"{"command":"initialize","arguments":{"clientID":"vscode","clientName":"Visual Studio Code","adapterID":"lldb","pathFormat":"path","linesStartAt1":true,"columnsStartAt1":true,"supportsVariableType":true,"supportsVariablePaging":true,"supportsRunInTerminalRequest":true,"locale":"en-us"},"type":"request","seq":1}"#);
-    parse(br#"{"request_seq":1,"command":"initialize","body":{"supportsDelayedStackTraceLoading":true,"supportsEvaluateForHovers":true,"exceptionBreakpointFilters":[{"filter":"rust_panic","default":true,"label":"Rust: on panic"}],"supportsCompletionsRequest":true,"supportsConditionalBreakpoints":true,"supportsStepBack":false,"supportsConfigurationDoneRequest":true,"supportTerminateDebuggee":true,"supportsLogPoints":true,"supportsFunctionBreakpoints":true,"supportsHitConditionalBreakpoints":true,"supportsSetVariable":true},"type":"response","success":true}"#);
-}
+    #[test]
+    fn test1() {
+        parse(br#"{"command":"initialize","arguments":{"clientID":"vscode","clientName":"Visual Studio Code","adapterID":"lldb","pathFormat":"path","linesStartAt1":true,"columnsStartAt1":true,"supportsVariableType":true,"supportsVariablePaging":true,"supportsRunInTerminalRequest":true,"locale":"en-us"},"type":"request","seq":1}"#);
+        parse(br#"{"request_seq":1,"command":"initialize","body":{"supportsDelayedStackTraceLoading":true,"supportsEvaluateForHovers":true,"exceptionBreakpointFilters":[{"filter":"rust_panic","default":true,"label":"Rust: on panic"}],"supportsCompletionsRequest":true,"supportsConditionalBreakpoints":true,"supportsStepBack":false,"supportsConfigurationDoneRequest":true,"supportTerminateDebuggee":true,"supportsLogPoints":true,"supportsFunctionBreakpoints":true,"supportsHitConditionalBreakpoints":true,"supportsSetVariable":true},"type":"response","success":true}"#);
+    }
 
-#[test]
-fn test2() {
-    parse(br#"{"command":"launch","arguments":{"type":"lldb","request":"launch","name":"Debug tests in types_lib","args":[],"cwd":"/home/chega/NW/vscode-lldb/debuggee","initCommands":["platform shell echo 'init'"],"env":{"TEST":"folder"},"sourceMap":{"/checkout/src":"/home/chega/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/src"},"program":"/home/chega/NW/vscode-lldb/debuggee/target/debug/types_lib-d6a67ab7ca515c6b","debugServer":41025,"_displaySettings":{"showDisassembly":"always","displayFormat":"auto","dereferencePointers":true,"toggleContainerSummary":false,"containerSummary":true},"__sessionId":"81865613-a1ee-4a66-b449-a94165625fd2"},"type":"request","seq":2}"#);
-    parse(br#"{"request_seq":2,"command":"launch","body":null,"type":"response","success":true}"#);
-}
+    #[test]
+    fn test2() {
+        parse(br#"{"command":"launch","arguments":{"type":"lldb","request":"launch","name":"Debug tests in types_lib","args":[],"cwd":"/home/chega/NW/vscode-lldb/debuggee","initCommands":["platform shell echo 'init'"],"env":{"TEST":"folder"},"sourceMap":{"/checkout/src":"/home/chega/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/src"},"program":"/home/chega/NW/vscode-lldb/debuggee/target/debug/types_lib-d6a67ab7ca515c6b","debugServer":41025,"_displaySettings":{"showDisassembly":"always","displayFormat":"auto","dereferencePointers":true,"toggleContainerSummary":false,"containerSummary":true},"__sessionId":"81865613-a1ee-4a66-b449-a94165625fd2"},"type":"request","seq":2}"#);
+        parse(br#"{"request_seq":2,"command":"launch","body":null,"type":"response","success":true}"#);
+    }
 
-#[test]
-fn test3() {
-    parse(br#"{"type":"event","event":"initialized","seq":0}"#);
-    parse(br#"{"body":{"reason":"started","threadId":7537},"type":"event","event":"thread","seq":0}"#);
-}
+    #[test]
+    fn test3() {
+        parse(br#"{"type":"event","event":"initialized","seq":0}"#);
+        parse(br#"{"body":{"reason":"started","threadId":7537},"type":"event","event":"thread","seq":0}"#);
+    }
 
-#[test]
-fn test4() {
-    parse(br#"{"command":"scopes","arguments":{"frameId":1000},"type":"request","seq":12}"#);
-    parse(br#"{"request_seq":12,"command":"scopes","body":{"scopes":[{"variablesReference":1001,"name":"Local","expensive":false},{"variablesReference":1002,"name":"Static","expensive":false},{"variablesReference":1003,"name":"Global","expensive":false},{"variablesReference":1004,"name":"Registers","expensive":false}]},"type":"response","success":true}"#);
+    #[test]
+    fn test4() {
+        parse(br#"{"command":"scopes","arguments":{"frameId":1000},"type":"request","seq":12}"#);
+        parse(br#"{"request_seq":12,"command":"scopes","body":{"scopes":[{"variablesReference":1001,"name":"Local","expensive":false},{"variablesReference":1002,"name":"Static","expensive":false},{"variablesReference":1003,"name":"Global","expensive":false},{"variablesReference":1004,"name":"Registers","expensive":false}]},"type":"response","success":true}"#);
+    }
+
+    #[test]
+    fn test5() {
+        let h = Hren {
+            command: "initialize".into(),
+            arguments: RequestArguments::launch(LaunchRequestArguments {
+                no_debug: None,
+                program: String::new(),
+            }),
+        };
+        let s = serde_json::to_string(&h);
+        println!("{:?}", s);
+        panic!();
+    }
 }
