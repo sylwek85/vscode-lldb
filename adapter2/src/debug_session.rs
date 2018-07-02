@@ -54,9 +54,23 @@ impl DebugSession {
 
     fn handle_request(&mut self, request: Request) {
         let result = match request.arguments {
-            RequestArguments::initialize(args) => self.handle_initialize(args),
-            RequestArguments::launch(args) => self.handle_launch(args),
-            RequestArguments::configurationDone(args) => self.handle_configuration_done(args),
+            RequestArguments::initialize(args) => self.handle_initialize(args).map(|r| ResponseBody::initialize(r)),
+            RequestArguments::setBreakpoints(args) => self
+                .handle_set_breakpoints(args)
+                .map(|r| ResponseBody::setBreakpoints(r)),
+            RequestArguments::setFunctionBreakpoints(args) => self
+                .handle_set_function_breakpoints(args)
+                .map(|r| ResponseBody::setFunctionBreakpoints(r)),
+            RequestArguments::setExceptionBreakpoints(args) => self
+                .handle_set_exception_breakpoints(args)
+                .map(|r| ResponseBody::setExceptionBreakpoints),
+            RequestArguments::configurationDone(args) => self
+                .handle_configuration_done(args)
+                .map(|r| ResponseBody::configurationDone),
+            RequestArguments::launch(args) => {
+                self.handle_launch(args);
+                return;
+            } // launch responds asynchronously
             _ => panic!(),
         };
         let response = match result {
@@ -76,7 +90,7 @@ impl DebugSession {
         self.send_message.send(response);
     }
 
-    fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<ResponseBody, Error> {
+    fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<Capabilities, Error> {
         self.debugger = Some(lldb::SBDebugger::create(false));
         let caps = Capabilities {
             supports_configuration_done_request: Some(true),
@@ -93,19 +107,35 @@ impl DebugSession {
             //supportsStepBack': self.parameters.get('reverseDebugging', False),
             //exception_breakpoint_filters: exc_filters,
         };
-        self.send_event(EventBody::initialized);
-        Ok(ResponseBody::initialize(caps))
+        Ok(caps)
     }
 
-    fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody, Error> {
+    fn handle_set_breakpoints(&mut self, args: SetBreakpointsArguments) -> Result<SetBreakpointsResponseBody, Error> {
+        let response = SetBreakpointsResponseBody { breakpoints: vec![] };
+        Ok(response)
+    }
+
+    fn handle_set_function_breakpoints(
+        &mut self, args: SetFunctionBreakpointsArguments,
+    ) -> Result<SetBreakpointsResponseBody, Error> {
+        let response = SetBreakpointsResponseBody { breakpoints: vec![] };
+        Ok(response)
+    }
+
+    fn handle_set_exception_breakpoints(&mut self, args: SetExceptionBreakpointsArguments) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn handle_configuration_done(&mut self, args: ConfigurationDoneArguments) -> Result<(), Error> {
+        if let Some(ref launch_args) = self.launch_args {}
+        Ok(())
+    }
+
+    fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<(), Error> {
         self.target = Some(self.debugger.as_ref()?.create_target(&args.program, None, None, false)?);
         self.launch_args = Some(args);
-        Ok(ResponseBody::Async)
-    }
-
-    fn handle_configuration_done(&mut self, args: ConfigurationDoneArguments) -> Result<ResponseBody, Error> {
-        if let Some(ref launch_args) = self.launch_args {}
-        Ok(ResponseBody::configurationDone)
+        self.send_event(EventBody::initialized);
+        Ok(())
     }
 
     fn send_event(&mut self, event_body: EventBody) {

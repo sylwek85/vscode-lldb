@@ -94,7 +94,7 @@ pub enum ResponseBody {
     attach,
     setBreakpoints(SetBreakpointsResponseBody),
     setFunctionBreakpoints(SetBreakpointsResponseBody),
-    setExceptionBreakpoints(SetBreakpointsResponseBody),
+    setExceptionBreakpoints,
     configurationDone,
     pause,
     #[serde(rename = "continue")]

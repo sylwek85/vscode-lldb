@@ -4,6 +4,7 @@ use std::error::Error;
 use std::io;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::thread;
+use std::str;
 
 pub struct DebugServer {
     sender: thread::JoinHandle<()>,
@@ -24,21 +25,21 @@ impl DebugServer {
             loop {
                 line.clear();
                 reader.read_line(&mut line);
-                println!("{}", line);
                 if line.starts_with("Content-Length:") {
                     let content_len = line[15..].trim().parse::<usize>().unwrap();
                     line.clear();
                     reader.read_line(&mut line);
                     buffer.resize(content_len, 0);
                     reader.read_exact(&mut buffer).unwrap();
-                    match serde_json::from_slice(&buffer[..]) {
+                    println!("rx: {}", str::from_utf8(&buffer).unwrap());
+                    match serde_json::from_slice(&buffer) {
                         Ok(message) => {
                             inbound_send.send(message);
                         }
                         Err(err) => {
                             if (err.is_data()) {
                                 // Try reading as generic JSON value.
-                                if let Ok(msg) = serde_json::from_slice::<Value>(&buffer[..]) {
+                                if let Ok(msg) = serde_json::from_slice::<Value>(&buffer) {
                                     inbound_send.send(ProtocolMessage::Unknown(msg));
                                 }
                             }
@@ -51,6 +52,7 @@ impl DebugServer {
         let sender = thread::spawn(move || loop {
             let message = outbound_recv.recv().unwrap();
             let buffer = serde_json::to_vec(&message).unwrap();
+            println!("tx: {}", str::from_utf8(&buffer).unwrap());
             writeln!(&mut writer, "Content-Length:{}", buffer.len());
             writeln!(&mut writer, "");
             writer.write(&buffer);
