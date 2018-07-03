@@ -1,17 +1,22 @@
 #![allow(non_camel_case_types)]
 
-pub use debugserver_types::{
-    AttachRequestArguments, BreakpointEventBody, Capabilities, CompletionsArguments, CompletionsResponseBody,
-    ConfigurationDoneArguments, ContinueArguments, ContinueResponseBody, ContinuedEventBody, DisconnectArguments,
-    EvaluateArguments, EvaluateResponseBody, ExitedEventBody, InitializeRequestArguments, ModuleEventBody,
-    NextArguments, OutputEventBody, PauseArguments, ScopesArguments, ScopesResponseBody, SetBreakpointsArguments,
-    SetBreakpointsResponseBody, SetExceptionBreakpointsArguments, SetFunctionBreakpointsArguments,
-    SetVariableArguments, SetVariableResponseBody, SourceArguments, SourceResponseBody, StackTraceArguments,
-    StackTraceResponseBody, StepBackArguments, StepInArguments, StepOutArguments, StoppedEventBody,
-    TerminatedEventBody, ThreadEventBody, ThreadsResponseBody, VariablesArguments, VariablesResponseBody,
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+extern crate serde_json;
+
+mod generated;
+
+pub use generated::{
+    AttachRequestArguments, Breakpoint, BreakpointEventBody, CompletionsArguments, CompletionsResponseBody,
+    ContinueArguments, ContinueResponseBody, ContinuedEventBody, DisconnectArguments, EvaluateArguments,
+    EvaluateResponseBody, ExitedEventBody, InitializeRequestArguments, ModuleEventBody, NextArguments, OutputEventBody,
+    PauseArguments, ScopesArguments, ScopesResponseBody, SetBreakpointsArguments, SetBreakpointsResponseBody,
+    SetExceptionBreakpointsArguments, SetFunctionBreakpointsArguments, SetVariableArguments, SetVariableResponseBody,
+    Source, SourceArguments, SourceBreakpoint, SourceResponseBody, StackTraceArguments, StackTraceResponseBody,
+    StepBackArguments, StepInArguments, StepOutArguments, StoppedEventBody, TerminatedEventBody, Thread,
+    ThreadEventBody, ThreadsResponseBody, VariablesArguments, VariablesResponseBody,
 };
-use serde::{Deserialize, Serialize};
-use serde_json;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
@@ -27,13 +32,6 @@ pub enum ProtocolMessage {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Hren {
-    pub command: String,
-    #[serde(flatten)]
-    pub arguments: RequestArguments,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct Request {
     pub seq: u32,
     #[serde(flatten)]
@@ -44,6 +42,7 @@ pub struct Request {
 pub struct Response {
     pub request_seq: u32,
     pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     #[serde(flatten)]
     pub body: Option<ResponseBody>,
@@ -65,7 +64,7 @@ pub enum RequestArguments {
     setBreakpoints(SetBreakpointsArguments),
     setFunctionBreakpoints(SetFunctionBreakpointsArguments),
     setExceptionBreakpoints(SetExceptionBreakpointsArguments),
-    configurationDone(ConfigurationDoneArguments),
+    configurationDone,
     pause(PauseArguments),
     #[serde(rename = "continue")]
     continue_(ContinueArguments),
@@ -134,6 +133,30 @@ pub struct LaunchRequestArguments {
     #[serde(rename = "noDebug")]
     pub no_debug: Option<bool>,
     pub program: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Capabilities {
+    #[serde(rename = "supportsConfigurationDoneRequest")]
+    pub supports_configuration_done_request: bool,
+    #[serde(rename = "supportsFunctionBreakpoints")]
+    pub supports_function_breakpoints: bool,
+    #[serde(rename = "supportsConditionalBreakpoints")]
+    pub supports_conditional_breakpoints: bool,
+    #[serde(rename = "supportsHitConditionalBreakpoints")]
+    pub supports_hit_conditional_breakpoints: bool,
+    #[serde(rename = "supportsEvaluateForHovers")]
+    pub supports_evaluate_for_hovers: bool,
+    #[serde(rename = "supportsSetVariable")]
+    pub supports_set_variable: bool,
+    #[serde(rename = "supportsCompletionsRequest")]
+    pub supports_completions_request: bool,
+    #[serde(rename = "supportTerminateDebuggee")]
+    pub support_terminate_debuggee: bool,
+    #[serde(rename = "supportsDelayedStackTraceLoading")]
+    pub supports_delayed_stack_trace_loading: bool,
+    #[serde(rename = "supportsLogPoints")]
+    pub supports_log_points: bool,
 }
 
 ////////////////////////////////////////////////////////////////////////////////////

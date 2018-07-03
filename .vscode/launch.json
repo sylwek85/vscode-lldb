@@ -22,9 +22,14 @@
 			"type": "lldb",
 			"request": "launch",
 			"program": "/home/chega/NW/vscode-lldb/target/debug/codelldb2",
+			"env": {
+				"PATH": "${env:PATH}:/usr/lib/llvm-6.0/bin",
+				"RUST_LOG": "debug"
+			},
 			"sourceLanguages": [
 				"cpp", "rust"
-			]
+			],
+			"terminal": "integrated"
 		},
 		{
 			"name": "attach to adapter",

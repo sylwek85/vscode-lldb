@@ -4,9 +4,17 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug",
+            "name": "Normal",
             "program": "${workspaceFolder}/../out/debuggee/debuggee",
-            "args": ["inf_loop"],
+            "args": ["vars"],
+            "cwd": "${workspaceFolder}"
+        },        
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "DebugServer",
+            "program": "${workspaceFolder}/../out/debuggee/debuggee",
+            "args": ["vars"],
             "cwd": "${workspaceFolder}",
             "debugServer": 4711
         }

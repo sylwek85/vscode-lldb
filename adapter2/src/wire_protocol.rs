@@ -31,7 +31,7 @@ impl DebugServer {
                     reader.read_line(&mut line);
                     buffer.resize(content_len, 0);
                     reader.read_exact(&mut buffer).unwrap();
-                    println!("rx: {}", str::from_utf8(&buffer).unwrap());
+                    debug!("rx: {}", str::from_utf8(&buffer).unwrap());
                     match serde_json::from_slice(&buffer) {
                         Ok(message) => {
                             inbound_send.send(message);
@@ -52,10 +52,10 @@ impl DebugServer {
         let sender = thread::spawn(move || loop {
             let message = outbound_recv.recv().unwrap();
             let buffer = serde_json::to_vec(&message).unwrap();
-            println!("tx: {}", str::from_utf8(&buffer).unwrap());
-            writeln!(&mut writer, "Content-Length:{}", buffer.len());
-            writeln!(&mut writer, "");
-            writer.write(&buffer);
+            debug!("tx: {}", str::from_utf8(&buffer).unwrap());
+            write!(&mut writer, "Content-Length: {}\r\n\r\n", buffer.len());
+            writer.write_all(&buffer);
+            writer.flush();
         });
 
         let debug_server = DebugServer { sender, receiver };

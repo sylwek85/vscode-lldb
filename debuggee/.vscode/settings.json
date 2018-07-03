@@ -1,21 +1,3 @@
 {
-    "lldb.launch.initCommands": [
-        "platform shell echo 'init'"
-    ],
-    "lldb.launch.env": {
-        "TEST": "folder"
-    },
-    "lldb.dbgconfig": {
-        "foo": "FOO",
-        "bar": "${dbgconfig:foo}",
-        "baz": "${dbgconfig:quoox}",
-        "quoox": "${dbgconfig:foo} ${dbgconfig:bleh}",
-        "bleh": [
-            "${dbgconfig:foo}", "${dbgconfig:bar}"
-        ]
-    },
-    "lldb.executable_env": {
-        "RUST_BACKTRACE": "1"
-    },
-    "lldb.executable": "/home/chega/NW/vscode-lldb/target/debug/codelldb2"
+    "lldb.logLevel": 0
 }
