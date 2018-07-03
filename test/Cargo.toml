@@ -1,0 +1,11 @@
+[package]
+name = "cpp_test"
+version = "0.1.0"
+authors = ["Nika Layzell <nika@thelayzells.com>"]
+build = "build.rs"
+
+[build-dependencies]
+cpp_build = { path = "../cpp_build" }
+
+[dependencies]
+cpp = { path = "../cpp" }

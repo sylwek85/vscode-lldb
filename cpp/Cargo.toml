@@ -1,0 +1,14 @@
+[package]
+name = "cpp"
+version = "0.3.2"
+authors = ["Nika Layzell <nika@thelayzells.com>"]
+description = "Inline C++ code closures"
+readme = "../README.md"
+license = "MIT/Apache-2.0"
+keywords = ["c", "cxx", "ffi", "compiler"]
+categories = ["development-tools::ffi"]
+repository = "https://github.com/mystor/rust-cpp"
+documentation = "https://docs.rs/cpp"
+
+[dependencies]
+cpp_macros = { version = "=0.3.2", path = "../cpp_macros" }
