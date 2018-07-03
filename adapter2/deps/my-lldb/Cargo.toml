@@ -1,0 +1,9 @@
+[package]
+name = "my-lldb"
+version = "0.1.0"
+
+[dependencies]
+cpp = { path = "../cpp/cpp" }
+
+[build-dependencies]
+cpp_build = { path = "../cpp/cpp_build" }

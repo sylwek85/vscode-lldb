@@ -189,12 +189,12 @@ impl DebugSession {
     }
 
     fn handle_set_breakpoints(&mut self, args: SetBreakpointsArguments) -> Result<SetBreakpointsResponseBody, Error> {
-        let file_id = FileId::Filename(args.source.path.as_ref()?.clone());
-        let file_bps = self.line_breakpoints.remove(&file_id).unwrap_or_default();
-        let breakpoints =
-            self.set_source_breakpoints(file_bps, &args.breakpoints.as_ref()?, args.source.path.as_ref()?);
-        let response = SetBreakpointsResponseBody { breakpoints };
-        Ok(response)
+        // let file_id = FileId::Filename(args.source.path.as_ref()?.clone());
+        // let file_bps = self.line_breakpoints.remove(&file_id).unwrap_or_default();
+        // let breakpoints =
+        //     self.set_source_breakpoints(file_bps, &args.breakpoints.as_ref()?, args.source.path.as_ref()?);
+        // let response = SetBreakpointsResponseBody { breakpoints };
+        Ok(SetBreakpointsResponseBody { breakpoints: vec![] })
     }
 
     fn set_source_breakpoints(
@@ -202,7 +202,8 @@ impl DebugSession {
     ) -> Vec<Breakpoint> {
         for req in req_bps{
             let bp = if let Some(bp_id) = existing_bps.get(&req.line) {
-                self.target.as_ref().unwrap().find_breakpoint_by_id(bp_id.0)
+                //self.target.as_ref().unwrap().find_breakpoint_by_id(bp_id.0)
+                unimplemented!()
             }else{
             unimplemented!()
             };
@@ -246,13 +247,14 @@ impl DebugSession {
     }
 
     fn handle_threads(&mut self) -> Result<ThreadsResponseBody, Error> {
-        let mut response = ThreadsResponseBody { threads: vec![] };
-        for thread in self.process.as_ref()?.threads() {
-            response.threads.push(Thread {
-                id: thread.thread_id() as i64,
-                name: format!("{}: tid={}", thread.index_id(), thread.thread_id()),
-            });
-        }
-        Ok(response)
+        unimplemented!();
+        // let mut response = ThreadsResponseBody { threads: vec![] };
+        // for thread in self.process.as_ref()?.threads() {
+        //     response.threads.push(Thread {
+        //         id: thread.thread_id() as i64,
+        //         name: format!("{}: tid={}", thread.index_id(), thread.thread_id()),
+        //     });
+        // }
+        // Ok(response)
     }
 }

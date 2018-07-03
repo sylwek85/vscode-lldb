@@ -191,18 +191,4 @@ mod tests {
         parse(br#"{"command":"scopes","arguments":{"frameId":1000},"type":"request","seq":12}"#);
         parse(br#"{"request_seq":12,"command":"scopes","body":{"scopes":[{"variablesReference":1001,"name":"Local","expensive":false},{"variablesReference":1002,"name":"Static","expensive":false},{"variablesReference":1003,"name":"Global","expensive":false},{"variablesReference":1004,"name":"Registers","expensive":false}]},"type":"response","success":true}"#);
     }
-
-    #[test]
-    fn test5() {
-        let h = Hren {
-            command: "initialize".into(),
-            arguments: RequestArguments::launch(LaunchRequestArguments {
-                no_debug: None,
-                program: String::new(),
-            }),
-        };
-        let s = serde_json::to_string(&h);
-        println!("{:?}", s);
-        panic!();
-    }
 }
