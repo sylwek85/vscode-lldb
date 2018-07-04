@@ -67,6 +67,11 @@
         "$rustc"
       ],
       "group": "test"
+    },
+    {
+      "type": "shell",
+      "label": "cargo expand my-lldb",
+      "command": "cargo expand --manifest-path=adapter2/deps/my-lldb/Cargo.toml >/tmp/expanded.rs",
     }
   ]
 }

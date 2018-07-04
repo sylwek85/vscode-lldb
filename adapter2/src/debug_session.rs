@@ -1,11 +1,14 @@
 use debug_protocol::*;
 use failure;
-use lldb;
+use lldb::{self, BreakpointID};
+use must_initialize::{Initialized, MustInitialize, NotInitialized};
 use std::boxed::FnBox;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::option;
-use std::sync::mpsc::SyncSender;
+use std::path::{self, Path};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::thread;
 
 #[derive(Fail, Debug)]
 enum Error {
@@ -32,9 +35,6 @@ impl From<lldb::SBError> for Error {
 type AsyncResponder = FnBox(&mut DebugSession) -> Result<ResponseBody, Error>;
 
 #[derive(Hash, Eq, PartialEq, Debug)]
-struct BreakpointId(i32);
-struct BreakpointLocId(i32);
-#[derive(Hash, Eq, PartialEq, Debug)]
 struct SourceRef(u32);
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -47,7 +47,7 @@ enum BreakpointKind {
     Source {
         file_path: String,
         resolved_line: u32,
-        valid_locations: Vec<BreakpointLocId>,
+        valid_locations: Vec<BreakpointID>,
     },
     Function,
     Assembly {
@@ -58,7 +58,7 @@ enum BreakpointKind {
 }
 
 struct BreakpointInfo {
-    id: BreakpointId,
+    id: BreakpointID,
     kind: BreakpointKind,
     condition: Option<String>,
     log_message: Option<String>,
@@ -67,13 +67,13 @@ struct BreakpointInfo {
 
 pub struct DebugSession {
     send_message: SyncSender<ProtocolMessage>,
-    debugger: Option<lldb::SBDebugger>,
-    target: Option<lldb::SBTarget>,
-    process: Option<lldb::SBProcess>,
+    debugger: MustInitialize<lldb::SBDebugger>,
+    target: MustInitialize<lldb::SBTarget>,
+    process: MustInitialize<lldb::SBProcess>,
     on_configuration_done: Option<(u32, Box<AsyncResponder>)>,
-    line_breakpoints: HashMap<FileId, HashMap<i64, BreakpointId>>,
-    fn_breakpoints: HashMap<String, BreakpointId>,
-    breakpoints: HashMap<BreakpointId, BreakpointInfo>,
+    line_breakpoints: HashMap<FileId, HashMap<i64, BreakpointID>>,
+    fn_breakpoints: HashMap<String, BreakpointID>,
+    breakpoints: HashMap<BreakpointID, BreakpointInfo>,
 }
 
 impl DebugSession {
@@ -81,9 +81,9 @@ impl DebugSession {
         lldb::SBDebugger::initialize();
         DebugSession {
             send_message,
-            debugger: None,
-            target: None,
-            process: None,
+            debugger: NotInitialized,
+            target: NotInitialized,
+            process: NotInitialized,
             on_configuration_done: None,
             line_breakpoints: HashMap::new(),
             fn_breakpoints: HashMap::new(),
@@ -172,7 +172,22 @@ impl DebugSession {
     }
 
     fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<Capabilities, Error> {
-        self.debugger = Some(lldb::SBDebugger::create(false));
+        self.debugger = Initialized(lldb::SBDebugger::create(false));
+        self.debugger.set_async(true);
+
+        let (sender, recver) = sync_channel::<lldb::SBEvent>(100);
+
+        thread::spawn(move ||{
+            let listener = lldb::SBListener::new_with_name("DebugSession");
+            let mut event = lldb::SBEvent::new();
+            loop {
+                if listener.wait_for_event(1, &mut event) {
+                    sender.send(event);
+                    event = lldb::SBEvent::new();
+                }
+            }
+        });
+
         let caps = Capabilities {
             supports_configuration_done_request: true,
             supports_evaluate_for_hovers: true,
@@ -189,26 +204,39 @@ impl DebugSession {
     }
 
     fn handle_set_breakpoints(&mut self, args: SetBreakpointsArguments) -> Result<SetBreakpointsResponseBody, Error> {
-        // let file_id = FileId::Filename(args.source.path.as_ref()?.clone());
-        // let file_bps = self.line_breakpoints.remove(&file_id).unwrap_or_default();
-        // let breakpoints =
-        //     self.set_source_breakpoints(file_bps, &args.breakpoints.as_ref()?, args.source.path.as_ref()?);
-        // let response = SetBreakpointsResponseBody { breakpoints };
-        Ok(SetBreakpointsResponseBody { breakpoints: vec![] })
+        let file_id = FileId::Filename(args.source.path.as_ref()?.clone());
+        let file_bps = self.line_breakpoints.remove(&file_id).unwrap_or_default();
+        let breakpoints =
+            self.set_source_breakpoints(file_bps, &args.breakpoints.as_ref()?, args.source.path.as_ref()?);
+        let response = SetBreakpointsResponseBody { breakpoints };
+        Ok(response)
     }
 
     fn set_source_breakpoints(
-        &mut self, mut existing_bps: HashMap<i64, BreakpointId>, req_bps: &[SourceBreakpoint], file_path: &str,
+        &mut self, mut existing_bps: HashMap<i64, BreakpointID>, req_bps: &[SourceBreakpoint], file_path: &str,
     ) -> Vec<Breakpoint> {
-        for req in req_bps{
-            let bp = if let Some(bp_id) = existing_bps.get(&req.line) {
-                //self.target.as_ref().unwrap().find_breakpoint_by_id(bp_id.0)
-                unimplemented!()
-            }else{
-            unimplemented!()
+        let mut breakpoints = vec![];
+        for req in req_bps {
+            let bp = if let Some(bp_id) = existing_bps.get(&req.line).cloned() {
+                self.target.find_breakpoint_by_id(bp_id)
+            } else {
+                let file_name = Path::new(file_path).file_name().unwrap().to_str().unwrap();
+                let bp = self.target.breakpoint_create_by_location(file_name, req.line as u32);
+                existing_bps.insert(req.line, bp.id());
+                bp
             };
+            breakpoints.push(Breakpoint {
+                id: Some(bp.id() as i64),
+                verified: true,
+                column: None,
+                end_column: None,
+                line: None,
+                end_line: None,
+                message: None,
+                source: None,
+            });
         }
-        unimplemented!()
+        breakpoints
     }
 
     fn handle_set_function_breakpoints(
@@ -223,14 +251,14 @@ impl DebugSession {
     }
 
     fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<Box<AsyncResponder>, Error> {
-        self.target = Some(self.debugger.as_ref()?.create_target(&args.program, None, None, false)?);
+        self.target = Initialized(self.debugger.create_target(&args.program, None, None, false)?);
         self.send_event(EventBody::initialized);
         Ok(Box::new(move |s: &mut DebugSession| s.complete_launch(args)))
     }
 
     fn complete_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody, Error> {
         let mut launch_info = lldb::SBLaunchInfo::new();
-        self.process = Some(self.target.as_ref()?.launch(launch_info)?);
+        self.process = Initialized(self.target.launch(launch_info)?);
         Ok(ResponseBody::launch)
     }
 
@@ -247,14 +275,13 @@ impl DebugSession {
     }
 
     fn handle_threads(&mut self) -> Result<ThreadsResponseBody, Error> {
-        unimplemented!();
-        // let mut response = ThreadsResponseBody { threads: vec![] };
-        // for thread in self.process.as_ref()?.threads() {
-        //     response.threads.push(Thread {
-        //         id: thread.thread_id() as i64,
-        //         name: format!("{}: tid={}", thread.index_id(), thread.thread_id()),
-        //     });
-        // }
-        // Ok(response)
+        let mut response = ThreadsResponseBody { threads: vec![] };
+        for thread in self.process.threads() {
+            response.threads.push(Thread {
+                id: thread.thread_id() as i64,
+                name: format!("{}: tid={}", thread.index_id(), thread.thread_id()),
+            });
+        }
+        Ok(response)
     }
 }

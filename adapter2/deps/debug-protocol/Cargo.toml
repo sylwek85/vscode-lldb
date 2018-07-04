@@ -3,7 +3,7 @@ name = "debug-protocol"
 version = "0.1.0"
 authors = ["Vadim Chugunov <vadimcn@gmail.com>"]
 
-build = "build.rs"
+#build = "build.rs"
 
 [lib]
 path = "src/lib.rs"

@@ -22,6 +22,7 @@ use std::time::Duration;
 
 mod debug_session;
 mod wire_protocol;
+mod must_initialize;
 
 fn main() {
     env_logger::init();
