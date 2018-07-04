@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::option;
 use std::path::{self, Path};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::thread;
+use worker_thread::{WorkerThread, CancellationToken};
 
 #[derive(Fail, Debug)]
 enum Error {
@@ -70,6 +70,8 @@ pub struct DebugSession {
     debugger: MustInitialize<lldb::SBDebugger>,
     target: MustInitialize<lldb::SBTarget>,
     process: MustInitialize<lldb::SBProcess>,
+    listener: MustInitialize<lldb::SBListener>,
+    listener_thread: MustInitialize<WorkerThread>,
     on_configuration_done: Option<(u32, Box<AsyncResponder>)>,
     line_breakpoints: HashMap<FileId, HashMap<i64, BreakpointID>>,
     fn_breakpoints: HashMap<String, BreakpointID>,
@@ -84,6 +86,8 @@ impl DebugSession {
             debugger: NotInitialized,
             target: NotInitialized,
             process: NotInitialized,
+            listener: NotInitialized,
+            listener_thread: NotInitialized,
             on_configuration_done: None,
             line_breakpoints: HashMap::new(),
             fn_breakpoints: HashMap::new(),
@@ -177,10 +181,10 @@ impl DebugSession {
 
         let (sender, recver) = sync_channel::<lldb::SBEvent>(100);
 
-        thread::spawn(move ||{
+        WorkerThread::spawn(move |token| {
             let listener = lldb::SBListener::new_with_name("DebugSession");
             let mut event = lldb::SBEvent::new();
-            loop {
+            while !token.is_cancelled() {
                 if listener.wait_for_event(1, &mut event) {
                     sender.send(event);
                     event = lldb::SBEvent::new();
