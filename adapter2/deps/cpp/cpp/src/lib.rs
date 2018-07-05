@@ -69,34 +69,32 @@ pub use cpp_macros::*;
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __cpp_internal {
-    (@find_rust_macro rust!($($rust_body:tt)*) $($rest:tt)*) => {
-        __cpp_internal!{ @expand_rust_macro $($rust_body)* }
-        __cpp_internal!{ @find_rust_macro $($rest)* }
+    (@find_rust_macro [$($a:tt)*] rust!($($rust_body:tt)*) $($rest:tt)*) => {
+        __cpp_internal!{ @expand_rust_macro [$($a)*] $($rust_body)* }
+        __cpp_internal!{ @find_rust_macro [$($a)*] $($rest)* }
     };
-    (@find_rust_macro ( $($in:tt)* ) $($rest:tt)* ) =>
-        { __cpp_internal!{ @find_rust_macro $($in)* $($rest)* }  };
-    (@find_rust_macro [ $($in:tt)* ] $($rest:tt)* ) =>
-        { __cpp_internal!{ @find_rust_macro $($in)* $($rest)* }  };
-    (@find_rust_macro { $($in:tt)* } $($rest:tt)* ) =>
-        { __cpp_internal!{ @find_rust_macro $($in)* $($rest)* }  };
-    (@find_rust_macro $t:tt $($rest:tt)*) =>
-        { __cpp_internal!{ @find_rust_macro $($rest)* } };
-    (@find_rust_macro) => {};
+    (@find_rust_macro [$($a:tt)*] ( $($in:tt)* ) $($rest:tt)* ) =>
+        { __cpp_internal!{ @find_rust_macro [$($a)*] $($in)* $($rest)* }  };
+    (@find_rust_macro [$($a:tt)*] [ $($in:tt)* ] $($rest:tt)* ) =>
+        { __cpp_internal!{ @find_rust_macro [$($a)*] $($in)* $($rest)* }  };
+    (@find_rust_macro [$($a:tt)*] { $($in:tt)* } $($rest:tt)* ) =>
+        { __cpp_internal!{ @find_rust_macro [$($a)*] $($in)* $($rest)* }  };
+    (@find_rust_macro [$($a:tt)*] $t:tt $($rest:tt)*) =>
+        { __cpp_internal!{ @find_rust_macro [$($a)*] $($rest)* } };
+    (@find_rust_macro [$($a:tt)*]) => {};
 
-    (@expand_rust_macro $i:ident [$($an:ident : $at:ty as $ac:tt),*] {$($body:tt)*}) => {
-        #[no_mangle]
+    (@expand_rust_macro [$($a:tt)*] $i:ident [$($an:ident : $at:ty as $ac:tt),*] {$($body:tt)*}) => {
         #[doc(hidden)]
-        pub extern "C" fn $i($($an : *const $at),*) {
+        $($a)* extern "C" fn $i($($an : *const $at),*) {
             $(let $an : $at = unsafe { $an.read() };)*
-            { $($body)* }
+            (|| { $($body)* })();
             $(::std::mem::forget($an);)*
 
         }
     };
-    (@expand_rust_macro $i:ident [$($an:ident : $at:ty as $ac:tt),*] -> $rt:ty as $rc:tt {$($body:tt)*}) => {
-        #[no_mangle]
+    (@expand_rust_macro [$($a:tt)*] $i:ident [$($an:ident : $at:ty as $ac:tt),*] -> $rt:ty as $rc:tt {$($body:tt)*}) => {
         #[doc(hidden)]
-        pub extern "C" fn $i($($an : *const $at, )* rt : *mut $rt) -> *mut $rt {
+        $($a)* extern "C" fn $i($($an : *const $at, )* rt : *mut $rt) -> *mut $rt {
             $(let $an : $at = unsafe { $an.read() };)*
             {
                 #[allow(unused_mut)]
@@ -136,7 +134,17 @@ macro_rules! __cpp_internal {
 /// ```ignore
 /// let y: i32 = 10;
 /// let mut z: i32 = 20;
-/// let x: i32 = cpp!([y as "int32_t", mut z as "int32_t"] -> i32 as "int32_t" {
+/// let x: i32 = unsafe { cpp!([y as "int32_t", mut z as "int32_t"] -> i32 as "int32_t" {
+///     z++;
+///     return y + z;
+/// })};
+/// ```
+///
+/// You can also put the unsafe keyword as the first keyword of the cpp! macro, which
+/// has the same effect as putting the whole macro in an unsafe block:
+///
+/// ```ignore
+/// let x: i32 = cpp!(unsafe [y as "int32_t", mut z as "int32_t"] -> i32 as "int32_t" {
 ///     z++;
 ///     return y + z;
 /// });
@@ -144,8 +152,8 @@ macro_rules! __cpp_internal {
 ///
 /// ## rust! pseudo-macro
 ///
-/// The first variant of the cpp! macro can contain, in the C++ code, a rust! sub-
-/// macro, which allows to include rust code in C++ code. This is useful to
+/// The cpp! macro can contain, in the C++ code, a rust! sub-macro, which allows
+/// to include rust code in C++ code. This is useful to
 /// implement callback or override virtual functions. Example:
 ///
 /// ```ignore
@@ -177,11 +185,12 @@ macro_rules! __cpp_internal {
 #[macro_export]
 macro_rules! cpp {
     // raw text inclusion
-    ({$($body:tt)*}) => { __cpp_internal!{ @find_rust_macro $($body)*} };
+    ({$($body:tt)*}) => { __cpp_internal!{ @find_rust_macro [#[no_mangle] pub] $($body)*} };
 
     // inline closure
     ([$($captures:tt)*] $($rest:tt)*) => {
         {
+            __cpp_internal!{ @find_rust_macro [] $($rest)*}
             #[allow(unused)]
             #[derive(__cpp_internal_closure)]
             enum CppClosureInput {
@@ -190,6 +199,9 @@ macro_rules! cpp {
             __cpp_closure_impl![$($captures)*]
         }
     };
+
+    // wrap unsafe
+    (unsafe $($tail:tt)*) => { unsafe { cpp!($($tail)*) } };
 }
 
 #[doc(hidden)]
@@ -224,9 +236,9 @@ pub trait CppTrait {
 /// ```
 ///
 /// This will create a rust struct MyClass, which has the same size and
-/// alignment as the the C++ class "MyClass". It will also implement the Drop trait
-/// calling the destructor, the Clone trait calling the copy constructor, if the
-/// class is copyable (or Copy if it is trivially copyable), and Default if the class
+/// alignment as the the C++ class "MyClass". It will also implement the `Drop` trait
+/// calling the destructor, the `Clone` trait calling the copy constructor, if the
+/// class is copyable (or `Copy` if it is trivially copyable), and `Default` if the class
 /// is default constructible
 ///
 /// The presence of the unsafe keyword in the macro is required as this macro is
@@ -234,23 +246,70 @@ pub trait CppTrait {
 /// when the class is created/cloned/destructed. You must ensure that the C++ class
 /// can be safely moved in memory.
 ///
+/// ## Derived Traits
+///
+/// The `Default`, `Clone` and `Copy` traits are implicitly implemented if the C++
+/// type has the corresponding constructors.
+///
+/// You can add the `#[derive(...)]` attribute in the macro in order to get automatic
+/// implementation of the following traits:
+///
+/// * The trait `PartialEq` will call the C++ `operator==`.
+/// * You can add the trait `Eq` if the semantics of the C++ operator are those of `Eq`
+/// * The trait `PartialOrd` need the C++ `operator<` for that type. `lt`, `le`, `gt` and
+///   `ge` will use the corresponding C++ operator if it is defined, otherwise it will
+///   fallback to the less than operator. For PartialOrd::partial_cmp, the `operator<` will
+///   be called twice. Note that it will never return None.
+/// * The trait `Ord` can also be specified when the semantics of the `operator<` corresponds
+///   to a total order
+///
 #[macro_export]
 macro_rules! cpp_class {
-    (unsafe struct $name:ident as $type:expr) => {
-        #[derive(__cpp_internal_class)]
-        #[repr(C)]
-        struct $name {
-            _opaque : [<$name as $crate::CppTrait>::BaseType ; <$name as $crate::CppTrait>::ARRAY_SIZE
-                + (stringify!(unsafe struct $name as $type), 0).1]
-        }
+    ($(#[$($attrs:tt)*])* unsafe struct $name:ident as $type:expr) => {
+        __cpp_class_internal!{@parse [ $(#[$($attrs)*])* ] [] [unsafe struct $name as $type] }
     };
-    (pub unsafe struct $name:ident as $type:expr) => {
-        #[derive(__cpp_internal_class)]
-        #[repr(C)]
-        pub struct $name {
-            _opaque : [<$name as $crate::CppTrait>::BaseType ; <$name as $crate::CppTrait>::ARRAY_SIZE
-                + (stringify!(pub unsafe struct $name as $type), 0).1]
-        }
+    ($(#[$($attrs:tt)*])* pub unsafe struct $name:ident as $type:expr) => {
+        __cpp_class_internal!{@parse [ $(#[$($attrs)*])* ] [pub] [unsafe struct $name as $type] }
+    };
+    ($(#[$($attrs:tt)*])* pub($($pub:tt)*) unsafe struct $name:ident as $type:expr) => {
+        __cpp_class_internal!{@parse [ $(#[$($attrs)*])* ] [pub($($pub)*)] [unsafe struct $name as $type] }
     };
 }
 
+/// Implementation details for cpp_class!
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __cpp_class_internal {
+    (@parse [$($attrs:tt)*] [$($vis:tt)*] [unsafe struct $name:ident as $type:expr]) => {
+        __cpp_class_internal!{@parse_attributes [ $($attrs)* ]  [
+            #[derive(__cpp_internal_class)]
+            #[repr(C)]
+            $($vis)* struct $name {
+                _opaque : [<$name as $crate::CppTrait>::BaseType ; <$name as $crate::CppTrait>::ARRAY_SIZE
+                    + (stringify!($($attrs)* $($vis)* unsafe struct $name as $type), 0).1]
+            }
+        ]}
+    };
+
+    (@parse_attributes [] [$($result:tt)*]) => ( $($result)* );
+    (@parse_attributes [#[derive($($der:ident),*)] $($tail:tt)* ] [$($result:tt)*] )
+        => (__cpp_class_internal!{@parse_derive [$($der),*] @parse_attributes [$($tail)*] [ $($result)* ] } );
+    (@parse_attributes [ #[$m:meta] $($tail:tt)* ]  [$($result:tt)*])
+        => (__cpp_class_internal!{@parse_attributes [$($tail)*]  [ #[$m] $($result)* ] } );
+
+    (@parse_derive [] @parse_attributes $($result:tt)*) => (__cpp_class_internal!{@parse_attributes $($result)*} );
+    (@parse_derive [PartialEq $(,$tail:ident)*] $($result:tt)*)
+        => ( __cpp_class_internal!{@parse_derive [$($tail),*] $($result)*} );
+    (@parse_derive [PartialOrd $(,$tail:ident)*] $($result:tt)*)
+        => ( __cpp_class_internal!{@parse_derive [$($tail),*] $($result)*} );
+    (@parse_derive [Ord $(,$tail:ident)*] $($result:tt)*)
+        => ( __cpp_class_internal!{@parse_derive [$($tail),*] $($result)*} );
+    (@parse_derive [Default $(,$tail:ident)*] $($result:tt)*)
+        => ( __cpp_class_internal!{@parse_derive [$($tail),*] $($result)*} );
+    (@parse_derive [Clone $(,$tail:ident)*] $($result:tt)*)
+        => ( __cpp_class_internal!{@parse_derive [$($tail),*] $($result)*} );
+    (@parse_derive [Copy $(,$tail:ident)*] $($result:tt)*)
+        => ( __cpp_class_internal!{@parse_derive [$($tail),*] $($result)*} );
+    (@parse_derive [$i:ident $(,$tail:ident)*] @parse_attributes [$($attr:tt)*] [$($result:tt)*] )
+        => ( __cpp_class_internal!{@parse_derive [$($tail),*] @parse_attributes [$($attr)*] [ #[derive($i)] $($result)* ] } );
+}
