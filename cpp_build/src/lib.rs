@@ -5,9 +5,7 @@
 //! documentation](https://docs.rs/cpp).
 
 extern crate cpp_common;
-#[macro_use]
 extern crate cpp_synom as synom;
-#[macro_use]
 extern crate cpp_syn as syn;
 
 extern crate cpp_synmap;
@@ -24,7 +22,7 @@ use std::io::prelude::*;
 use syn::visit::Visitor;
 use syn::{Mac, Spanned, DUMMY_SPAN, Ident, Token, TokenTree};
 use cpp_common::{parsing, Capture, Closure, ClosureSig, Macro, Class, LIB_NAME, STRUCT_METADATA_MAGIC,
-                 VERSION, flags};
+                 VERSION, OUT_DIR, FILE_HASH, flags};
 use cpp_synmap::SourceMap;
 
 fn warnln_impl(a: String) {
@@ -101,6 +99,23 @@ typename std::enable_if<std::is_default_constructible<T>::value>::type default_h
 template<typename T>
 typename std::enable_if<!std::is_default_constructible<T>::value>::type default_helper(void *)
 { std::abort(); }
+
+template<typename T> int compare_helper(const T &a, const T&b, int cmp) {
+    switch (cmp) {
+        using namespace std::rel_ops;
+        case 0:
+            if (a < b)
+                return -1;
+            if (b < a)
+                return 1;
+            return 0;
+        case -2: return a < b;
+        case 2: return a > b;
+        case -1: return a <= b;
+        case 1: return a >= b;
+    }
+    std::abort();
+}
 }
 
 #define RUST_CPP_CLASS_HELPER(HASH, ...) \
@@ -112,13 +127,6 @@ typename std::enable_if<!std::is_default_constructible<T>::value>::type default_
 "#);
 
 lazy_static! {
-    static ref OUT_DIR: PathBuf =
-        PathBuf::from(env::var("OUT_DIR").expect(r#"
--- rust-cpp fatal error --
-
-The OUT_DIR environment variable was not set.
-NOTE: rust-cpp's build function must be run in a build script."#));
-
     static ref CPP_DIR: PathBuf = OUT_DIR.join("rust_cpp");
 
     static ref CARGO_MANIFEST_DIR: PathBuf =
@@ -129,81 +137,49 @@ The CARGO_MANIFEST_DIR environment variable was not set.
 NOTE: rust-cpp's build function must be run in a build script."#));
 }
 
+enum ExpandSubMacroType<'a> {
+    Lit,
+    Closure(&'a mut u32), // the offset
+}
+
 // Given a string containing some C++ code with a rust! macro,
 // this functions expand the rust! macro to a call to an extern
-// function, and return a tuple with the expanded C++ code, and
-// a declaration of the extern "C" function.
-fn expand_sub_rust_macro(input : String) -> (String, String) {
+// function
+fn expand_sub_rust_macro(input: String, mut t: ExpandSubMacroType) -> String {
     let mut result = input;
-    let mut extern_decl = String::new();
-
-    use syn::parse::{ident, string, tt, ty};
-    use synom::IResult::Done;
-
-    struct RustInvocation {
-        begin: usize,
-        end: usize,
-        id: String,
-        return_type: Option<String>,
-        arguments: Vec<(String, String)>, // Vec of type and name pair
-    };
-
-    named!(rust_macro_argument -> (String, String),
-            do_parse!(
-                name: ident >>
-                punct!(":") >>
-                ty >>
-                keyword!("as") >>
-                cty: string >>
-                ((name.as_ref().to_owned(), cty.value))));
-
-    named!(find_rust_macro -> RustInvocation,
-            do_parse!(
-                take_until!("rust!") >>
-                begin: spanned!(keyword!("rust")) >>
-                punct!("!") >>
-                punct!("(") >>
-                id: ident >>
-                punct!("[") >>
-                args: separated_list!(punct!(","), rust_macro_argument) >>
-                punct!("]") >>
-                rty : option!(do_parse!(punct!("->") >>
-                        ty >>
-                        keyword!("as") >>
-                        cty: string >>
-                        (cty.value))) >>
-                tt >>
-                end: spanned!(punct!(")")) >>
-                (RustInvocation{ begin: begin.span.lo, end: end.span.hi, id: id.as_ref().to_owned(),
-                                 return_type: rty,  arguments: args })));
-
+    let mut extra_decl = String::new();
     loop {
         let tmp = result.clone();
-        if let Done(_,rust_invocation) = find_rust_macro(synom::ParseState::new(&tmp)) {
+        if let synom::IResult::Done(_, rust_invocation) =
+            parsing::find_rust_macro(synom::ParseState::new(&tmp))
+        {
+            let fn_name: Ident = match t {
+                ExpandSubMacroType::Lit => {
+                    extra_decl.push_str(&format!("extern \"C\" void {}();\n", rust_invocation.id));
+                    rust_invocation.id.clone()
+                }
+                ExpandSubMacroType::Closure(ref mut offset) => {
+                    **offset += 1;
+                    format!("rust_cpp_callbacks{file_hash}[{offset}]",
+                        file_hash = *FILE_HASH, offset = **offset - 1).into()
+                }
+            };
 
-            let decl_types = rust_invocation.arguments.iter().map(|&(_, ref val)| {
+            let mut decl_types = rust_invocation.arguments.iter().map(|&(_, ref val)| {
                     format!("rustcpp::argument_helper<{}>::type", val)
-                }).collect::<Vec<_>>().join(", ");
-            let call_args = rust_invocation.arguments.iter().map(|&(ref val, _)| val.as_ref()).collect::<Vec<_>>().join(", ");
+                }).collect::<Vec<_>>();
+            let mut call_args = rust_invocation.arguments.iter().map(|&(ref val, _)| val.as_ref()).collect::<Vec<_>>();
 
             let fn_call = match rust_invocation.return_type {
                 None => {
-                    extern_decl.push_str(&format!("extern \"C\" void {id} ({types});\n",
-                        id = &rust_invocation.id, types = decl_types));
-                    format!("{id}({args})", id = rust_invocation.id, args = call_args)
+                    format!("reinterpret_cast<void (*)({types})>({f})({args})",
+                        f = fn_name, types = decl_types.join(", "), args = call_args.join(", "))
                 }
                 Some(rty) => {
-                    if decl_types.is_empty() {
-                        extern_decl.push_str(&format!(
-                            "extern \"C\" {rty} *{id} (rustcpp::return_helper<{rty}> = 0);\n",
-                            rty = rty,  id = rust_invocation.id));
-
-                    } else {
-                        extern_decl.push_str(&format!(
-                            "extern \"C\" {rty} *{id} ({types}, rustcpp::return_helper<{rty}> = 0);\n",
-                            rty = rty,  id = rust_invocation.id, types = decl_types));
-                    }
-                    format!("std::move(*{id}({args}))", id = rust_invocation.id, args = call_args)
+                    decl_types.push(format!("rustcpp::return_helper<{rty}>", rty = rty));
+                    call_args.push("0");
+                    format!("std::move(*reinterpret_cast<{rty}*(*)({types})>({f})({args}))",
+                        rty = rty, f = fn_name, types = decl_types.join(", "), args = call_args.join(", "))
                 }
             };
 
@@ -221,7 +197,7 @@ fn expand_sub_rust_macro(input : String) -> (String, String) {
         }
     }
 
-    return (result, extern_decl);
+    return extra_decl + &result;
 }
 
 fn gen_cpp_lib(visitor: &Handle) -> PathBuf {
@@ -230,10 +206,19 @@ fn gen_cpp_lib(visitor: &Handle) -> PathBuf {
 
     write!(output, "{}", INTERNAL_CPP_STRUCTS).unwrap();
 
+    if visitor.callbacks_count > 0 {
+        write!(output, add_line!(r#"
+extern "C" {{
+    void (*rust_cpp_callbacks{file_hash}[{callbacks_count}])() = {{}};
+}}
+        "#), file_hash = *FILE_HASH, callbacks_count = visitor.callbacks_count).unwrap();
+    }
+
+
     write!(output, "{}\n\n", &visitor.snippets).unwrap();
 
     let mut sizealign = vec![];
-    for &Closure { ref body, ref sig } in &visitor.closures {
+    for &Closure { ref body, ref sig, ref callback_offset } in &visitor.closures {
         let &ClosureSig {
             ref captures,
             ref cpp,
@@ -248,16 +233,17 @@ fn gen_cpp_lib(visitor: &Handle) -> PathBuf {
         // Generate the sizes array with the sizes of each of the argument types
         if is_void {
             sizealign.push(format!(
-                "{{{hash}ull, 0, 1, 0}}",
-                hash = hash
+                "{{{hash}ull, 0, 1, {callback_offset}ull << 32}}",
+                hash = hash,
+                callback_offset = callback_offset
             ));
         } else {
             sizealign.push(format!("{{
                 {hash}ull,
                 sizeof({type}),
                 rustcpp::AlignOf<{type}>::value,
-                rustcpp::Flags<{type}>::value
-            }}", hash=hash, type=cpp));
+                rustcpp::Flags<{type}>::value | {callback_offset}ull << 32
+            }}", hash=hash, type=cpp, callback_offset = callback_offset));
         }
         for &Capture { ref cpp, .. } in captures {
             sizealign.push(format!("{{
@@ -339,9 +325,23 @@ void {name}({params}{comma} void* __result) {{
         // (this is done in a macro, which right after a #line directing pointing to the location of
         // the cpp_class! macro in order to give right line information in the possible errors)
         write!(
-            output, "{line}RUST_CPP_CLASS_HELPER({hash}, {cpp_name})\n",
-            line = class.line, hash = hash, cpp_name = class.cpp
+            output,
+            "{line}RUST_CPP_CLASS_HELPER({hash}, {cpp_name})\n",
+            line = class.line,
+            hash = hash,
+            cpp_name = class.cpp
         ).unwrap();
+
+        if class.derives("PartialEq") {
+            write!(output,
+                "{line}extern \"C\" bool __cpp_equal_{hash}(const {name} *a, const {name} *b) {{ return *a == *b; }}\n",
+                line = class.line, hash = hash, name = class.cpp).unwrap();
+        }
+        if class.derives("PartialOrd") {
+            write!(output,
+                "{line}extern \"C\" bool __cpp_compare_{hash}(const {name} *a, const {name} *b, int cmp) {{ return rustcpp::compare_helper(*a, *b, cmp); }}\n",
+                line = class.line, hash = hash, name = class.cpp).unwrap();
+        }
     }
 
     let mut magic = vec![];
@@ -686,6 +686,7 @@ In order to provide a better error message, the build script will exit successfu
             classes: Vec::new(),
             snippets: String::new(),
             sm: &sm,
+            callbacks_count: 0,
         };
         visitor.visit_crate(&krate);
 
@@ -718,6 +719,7 @@ struct Handle<'a> {
     classes: Vec<Class>,
     snippets: String,
     sm: &'a SourceMap,
+    callbacks_count: u32,
 }
 
 fn line_directive(span: syn::Span, sm: &SourceMap) -> String {
@@ -766,14 +768,20 @@ impl<'a> Handle<'a> {
         {
             Macro::Closure(mut c) => {
                 extract_with_span(&mut c.body, &src, span.lo, self.sm);
+                c.callback_offset = self.callbacks_count;
+                c.body.node = expand_sub_rust_macro(
+                    c.body.node,
+                    ExpandSubMacroType::Closure(&mut self.callbacks_count),
+                );
                 self.closures.push(c);
             }
             Macro::Lit(mut l) => {
                 extract_with_span(&mut l, &src, span.lo, self.sm);
                 self.snippets.push('\n');
-                let (snip, extern_decl) = expand_sub_rust_macro(l.node.clone());
-                self.snippets.push_str(&extern_decl);
-                self.snippets.push_str(&snip);
+                self.snippets.push_str(&expand_sub_rust_macro(
+                    l.node.clone(),
+                    ExpandSubMacroType::Lit,
+                ));
             }
         }
     }

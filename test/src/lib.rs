@@ -29,12 +29,19 @@ cpp!{{
     }
     void *callRust2(void *ptr)  {
         int a = 3;
-        return rust!(ptrCallback [ptr : *mut u32 as "void*", a : u32 as "int"] -> *mut u32 as "void *"
+        typedef int LocalInt;
+        typedef void * VoidStar;
+        return rust!(ptrCallback [ptr : *mut u32 as "void*", a : u32 as "LocalInt"]
+            -> *mut u32 as "VoidStar"
         { unsafe {*ptr += a}; return ptr; });
     }
 }}
 
-cpp_class!(pub unsafe struct A as "A");
+cpp_class!(
+    /// Documentation comments
+    /** More /*comments*/ */
+    pub unsafe struct A as "A");
+
 impl A {
     fn new(a : i32, b: i32) -> Self {
         unsafe {
@@ -97,6 +104,7 @@ cpp!{{
         // with a class
         A a(3,4);
         rust!(xx___10 [a : A as "A"] { let a2 = a.clone(); assert!(a2.multiply() == 12); } );
+        rust!(xx___11 [a : A as "A"] { let _a = a.clone(); return; } );
         return 0;
     }
 }}
@@ -190,7 +198,7 @@ fn member_function() {
     assert_eq!(a.multiply(), 5*6);
 }
 
-cpp_class!(unsafe struct B as "B");
+cpp_class!(pub(crate) unsafe struct B as "B");
 impl B {
     fn new(a : i32, b: i32) -> Self {
         unsafe {
@@ -253,6 +261,64 @@ fn move_only() {
     assert_eq!(mo2.data().multiply(), 7*9);
     assert_eq!(mo3.data().multiply(), 3*2);
 }
+
+#[test]
+fn derive_eq() {
+    cpp!{{
+        struct WithOpEq {
+            static int val;
+            int value = val++;
+            friend bool operator==(const WithOpEq &a, const WithOpEq &b) { return a.value == b.value; }
+        };
+        int WithOpEq::val = 0;
+    }};
+    cpp_class!(#[derive(Eq, PartialEq)] unsafe struct WithOpEq as "WithOpEq");
+
+    let x1 = WithOpEq::default();
+    let x2 = WithOpEq::default();
+
+    assert!(!(x1 == x2));
+    assert!(x1 != x2);
+
+    let x3 = x1.clone();
+    assert!(x1 == x3);
+    assert!(!(x1 != x3));
+}
+
+#[test]
+fn derive_ord() {
+    cpp!{{
+        struct Comp {
+            int value;
+            Comp(int i) : value(i) { }
+            friend bool operator<(const Comp &a, const Comp &b) { return a.value < b.value; }
+            friend bool operator==(const Comp &a, const Comp &b) { return a.value == b.value; }
+        };
+    }};
+    cpp_class!(#[derive(PartialEq, PartialOrd)] #[derive(Eq, Ord)] unsafe struct Comp as "Comp");
+    impl Comp {
+        fn new(i : u32) -> Comp { unsafe { cpp!([i as "int"] -> Comp as "Comp" { return i; }) } }
+    }
+
+    let x1 = Comp::new(1);
+    let x2 = Comp::new(2);
+    let x3 = Comp::new(3);
+    assert!(x1 < x2);
+    assert!(x2 > x1);
+    assert!(x3 > x1);
+    assert!(x3 >= x1);
+    assert!(x3 >= x3);
+    assert!(x2 <= x3);
+    assert!(x2 <= x2);
+    assert!(!(x1 > x2));
+    assert!(!(x2 < x1));
+    assert!(!(x3 <= x1));
+    assert!(!(x1 < x1));
+    assert!(!(x3 > x3));
+    assert!(!(x3 < x3));
+    assert!(!(x2 >= x3));
+}
+
 
 #[test]
 fn test_nomod() {
@@ -336,4 +402,27 @@ fn witin_macro() {
     assert_eq!(unsafe { cpp!([] -> u32 as "int" { return 12; }) }, 12);
     let s = format!("hello{}", unsafe { cpp!([] -> u32 as "int" { return 14; }) } );
     assert_eq!(s, "hello14");
+}
+
+#[test]
+fn with_unsafe() {
+    let x = 45;
+    assert_eq!(cpp!(unsafe [x as "int"] -> u32 as "int" { return x + 1; }), 46);
+}
+
+#[test]
+fn rust_submacro_closure() {
+    let mut result = unsafe { cpp!([] -> i32 as "int" {
+        auto x = rust!(bbb []-> A as "A" { A::new(5,7) }).multiply();
+        auto y = []{ A a(3,2); return rust!(aaa [a : A as "A"] -> i32 as "int" { a.multiply() }); }();
+        return x + y;
+    })};
+    assert_eq!(result, 5*7+3*2);
+
+    unsafe { cpp!([mut result as "int"] {
+        A a(9,2);
+        rust!(ccc [a : A as "A", result : &mut i32 as "int&"] { *result = a.multiply(); });
+    })};
+    assert_eq!(result, 18);
+
 }
