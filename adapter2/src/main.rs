@@ -22,15 +22,13 @@ extern crate tokio_codec;
 extern crate tokio_io;
 extern crate tokio_threadpool;
 
-use std::thread;
-use std::time::Duration;
+use futures::prelude::*;
+use tokio::prelude::*;
 
 use futures::future::{lazy, poll_fn};
 use futures::sync::mpsc;
-
 use tokio::io;
 use tokio::net::TcpListener;
-use tokio::prelude::*;
 use tokio_codec::Decoder;
 use tokio_threadpool::blocking;
 
@@ -58,18 +56,22 @@ fn main() {
                 .map_err(|_| io::Error::from(io::ErrorKind::Other))
                 .forward(tx_frame);
 
-            let recv_pipe = rx_frame.for_each(move |message| {
-                blocking(|| session.handle_message(message)).map_err(|_| panic!("the threadpool shut down"));
-                Ok(())
-            }).map_err(|_| io::Error::from(io::ErrorKind::Other));
+            let recv_pipe = rx_frame
+                .for_each(move |message| {
+                    blocking(|| session.handle_message(message)).map_err(|_| panic!("the threadpool shut down"));
+                    Ok(())
+                })
+                .map_err(|_| io::Error::from(io::ErrorKind::Other));
 
-            send_pipe.join(recv_pipe).map_err(|err| {
-                error!("join error: {:?}", err);
-            })
+            let hren = send_pipe.join(recv_pipe);
+
+            Ok(())
         })
-        .map_err(|err| {
-            error!("accept error: {:?}", err);
-        });
+        .then(|_| Ok(()));
+    // .map_err(|err| {
+    //     error!("accept error: {:?}", err);
+    // })
+    // .map(|_| ());
 
     tokio::run(server);
 }
