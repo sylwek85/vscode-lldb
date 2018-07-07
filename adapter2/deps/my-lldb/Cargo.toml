@@ -2,6 +2,9 @@
 name = "my-lldb"
 version = "0.1.0"
 
+[lib]
+path = "src/lldb.rs"
+
 [dependencies]
 cpp = { path = "../cpp/cpp" }
 

@@ -16,4 +16,7 @@ env_logger = "0.5.10"
 my-lldb = { path = "deps/my-lldb" }
 tokio = "0.1.7"
 tokio-io = "0.1.7"
+tokio-codec = "0.1.0"
 bytes = "0.4.8"
+futures = "0.1.21"
+tokio-threadpool = "0.1.5"

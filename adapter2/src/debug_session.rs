@@ -7,7 +7,9 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::option;
 use std::path::{self, Path};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+
+//use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use futures::sync::mpsc;
 use worker_thread::{WorkerThread, CancellationToken};
 
 #[derive(Fail, Debug)]
@@ -66,7 +68,7 @@ struct BreakpointInfo {
 }
 
 pub struct DebugSession {
-    send_message: SyncSender<ProtocolMessage>,
+    send_message: mpsc::Sender<ProtocolMessage>,
     debugger: MustInitialize<lldb::SBDebugger>,
     target: MustInitialize<lldb::SBTarget>,
     process: MustInitialize<lldb::SBProcess>,
@@ -78,8 +80,10 @@ pub struct DebugSession {
     breakpoints: HashMap<BreakpointID, BreakpointInfo>,
 }
 
+unsafe impl Send for DebugSession {}
+
 impl DebugSession {
-    pub fn new(send_message: SyncSender<ProtocolMessage>) -> Self {
+    pub fn new(send_message: mpsc::Sender<ProtocolMessage>) -> Self {
         lldb::SBDebugger::initialize();
         DebugSession {
             send_message,
@@ -164,7 +168,7 @@ impl DebugSession {
                 message: Some(format!("{}", err)),
             }),
         };
-        self.send_message.send(response);
+        self.send_message.try_send(response).map_err(|err| panic!("Could not send response: {}", err));
     }
 
     fn send_event(&mut self, event_body: EventBody) {
@@ -172,25 +176,25 @@ impl DebugSession {
             seq: 0,
             body: event_body,
         });
-        self.send_message.send(event);
+        self.send_message.try_send(event).map_err(|err| panic!("Could not send event: {}", err));
     }
 
     fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<Capabilities, Error> {
         self.debugger = Initialized(lldb::SBDebugger::create(false));
         self.debugger.set_async(true);
 
-        let (sender, recver) = sync_channel::<lldb::SBEvent>(100);
+        // let (sender, recver) = sync_channel::<lldb::SBEvent>(100);
 
-        WorkerThread::spawn(move |token| {
-            let listener = lldb::SBListener::new_with_name("DebugSession");
-            let mut event = lldb::SBEvent::new();
-            while !token.is_cancelled() {
-                if listener.wait_for_event(1, &mut event) {
-                    sender.send(event);
-                    event = lldb::SBEvent::new();
-                }
-            }
-        });
+        // WorkerThread::spawn(move |token| {
+        //     let listener = lldb::SBListener::new_with_name("DebugSession");
+        //     let mut event = lldb::SBEvent::new();
+        //     while !token.is_cancelled() {
+        //         if listener.wait_for_event(1, &mut event) {
+        //             sender.send(event);
+        //             event = lldb::SBEvent::new();
+        //         }
+        //     }
+        // });
 
         let caps = Capabilities {
             supports_configuration_done_request: true,
