@@ -5,7 +5,9 @@ extern crate cpp;
 
 use std::ffi::{CStr, CString};
 use std::mem;
+use std::os::raw::c_char;
 use std::ptr;
+use std::fmt;
 
 cpp!{{
     #include <lldb/API/LLDB.h>
@@ -203,6 +205,21 @@ impl SBEvent {
         cpp!(unsafe [] -> SBEvent as "SBEvent" {
             return SBEvent();
         })
+    }
+
+    pub fn get_cstring_from_event(event: &SBEvent) -> &CStr {
+        unsafe {
+            let ptr = cpp!([event as "SBEvent*"] -> *const c_char as "const char*" {
+                return SBEvent::GetCStringFromEvent(*event);
+            });
+            CStr::from_ptr(ptr)
+        }
+    }
+}
+
+impl fmt::Debug for SBEvent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", SBEvent::get_cstring_from_event(self))
     }
 }
 

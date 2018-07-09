@@ -32,13 +32,17 @@ use tokio::net::TcpListener;
 use tokio_codec::Decoder;
 use tokio_threadpool::blocking;
 
+use lldb::*;
+
 mod debug_session;
+mod event_listener;
 mod must_initialize;
 mod wire_protocol;
-mod worker_thread;
 
 fn main() {
     env_logger::init();
+    SBDebugger::initialize();
+
     let addr = "127.0.0.1:4711".parse().unwrap();
     let listener = TcpListener::bind(&addr).unwrap();
     println!("Listening on port {}", addr.port());
@@ -47,31 +51,20 @@ fn main() {
         .incoming()
         .for_each(|conn| {
             conn.set_nodelay(true);
-            let (tx_frame, rx_frame) = wire_protocol::Codec::new().framed(conn).split();
+            let (to_client, from_client) = wire_protocol::Codec::new().framed(conn).split();
+            let (to_session, from_session) = debug_session::DebugSession::new().split();
 
-            let (tx_message, rx_message) = mpsc::channel(10);
-            let mut session = debug_session::DebugSession::new(tx_message);
+            let client_to_session = from_client.map_err(|_| ()).forward(to_session);
+            let session_to_client = from_session.map_err(|err| io::Error::new(io::ErrorKind::Other, "hren")).forward(to_client);
 
-            let send_pipe = rx_message
-                .map_err(|_| io::Error::from(io::ErrorKind::Other))
-                .forward(tx_frame);
-
-            let recv_pipe = rx_frame
-                .for_each(move |message| {
-                    blocking(|| session.handle_message(message)).map_err(|_| panic!("the threadpool shut down"));
-                    Ok(())
-                })
-                .map_err(|_| io::Error::from(io::ErrorKind::Other));
-
-            let hren = send_pipe.join(recv_pipe);
-
-            Ok(())
+            session_to_client.map_err(|err| ()).join(client_to_session).then(|r| Ok(()))
         })
-        .then(|_| Ok(()));
-    // .map_err(|err| {
-    //     error!("accept error: {:?}", err);
-    // })
-    // .map(|_| ());
+        .map_err(|err| {
+            error!("accept error: {:?}", err);
+            panic!()
+        });
 
     tokio::run(server);
+
+    SBDebugger::terminate();
 }

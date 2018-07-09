@@ -1,16 +1,26 @@
-use debug_protocol::*;
-use failure;
-use lldb::{self, BreakpointID};
-use must_initialize::{Initialized, MustInitialize, NotInitialized};
+use std;
 use std::boxed::FnBox;
+use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::mem;
 use std::option;
 use std::path::{self, Path};
+use std::rc::Rc;
+use std::sync::Arc;
 
-//use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use futures::prelude::*;
+use futures::stream;
 use futures::sync::mpsc;
-use worker_thread::{WorkerThread, CancellationToken};
+use tokio::prelude::*;
+use tokio;
+use tokio_threadpool::blocking;
+
+use debug_protocol::*;
+use event_listener::EventListener;
+use failure;
+use lldb::*;
+use must_initialize::{Initialized, MustInitialize, NotInitialized};
 
 #[derive(Fail, Debug)]
 enum Error {
@@ -28,13 +38,13 @@ impl From<option::NoneError> for Error {
         Error::NotInitialized
     }
 }
-impl From<lldb::SBError> for Error {
-    fn from(sberr: lldb::SBError) -> Self {
+impl From<SBError> for Error {
+    fn from(sberr: SBError) -> Self {
         Error::SBError(sberr.error_string().into())
     }
 }
 
-type AsyncResponder = FnBox(&mut DebugSession) -> Result<ResponseBody, Error>;
+type AsyncResponder = FnBox(&mut DebugSessionInner) -> Result<ResponseBody, Error>;
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 struct SourceRef(u32);
@@ -67,39 +77,90 @@ struct BreakpointInfo {
     ignore_count: u32,
 }
 
-pub struct DebugSession {
+struct DebugSessionInner {
     send_message: mpsc::Sender<ProtocolMessage>,
-    debugger: MustInitialize<lldb::SBDebugger>,
-    target: MustInitialize<lldb::SBTarget>,
-    process: MustInitialize<lldb::SBProcess>,
-    listener: MustInitialize<lldb::SBListener>,
-    listener_thread: MustInitialize<WorkerThread>,
+    event_listener: EventListener,
+    debugger: MustInitialize<SBDebugger>,
+    target: MustInitialize<SBTarget>,
+    process: MustInitialize<SBProcess>,
     on_configuration_done: Option<(u32, Box<AsyncResponder>)>,
     line_breakpoints: HashMap<FileId, HashMap<i64, BreakpointID>>,
     fn_breakpoints: HashMap<String, BreakpointID>,
     breakpoints: HashMap<BreakpointID, BreakpointInfo>,
 }
 
-unsafe impl Send for DebugSession {}
+pub struct DebugSession {
+    inner: Arc<RefCell<DebugSessionInner>>,
+    sender_in: mpsc::Sender<ProtocolMessage>,
+    receiver_out: mpsc::Receiver<ProtocolMessage>,
+}
 
 impl DebugSession {
-    pub fn new(send_message: mpsc::Sender<ProtocolMessage>) -> Self {
-        lldb::SBDebugger::initialize();
-        DebugSession {
-            send_message,
+    pub fn new() -> Self {
+        let (sender_in, receiver_in) = mpsc::channel(10);
+        let (sender_out, receiver_out) = mpsc::channel(10);
+        let (event_listener, event_receiver) = EventListener::new("DebugSession");
+
+        let inner = DebugSessionInner {
+            send_message: sender_out,
             debugger: NotInitialized,
             target: NotInitialized,
             process: NotInitialized,
-            listener: NotInitialized,
-            listener_thread: NotInitialized,
+            event_listener: event_listener,
             on_configuration_done: None,
             line_breakpoints: HashMap::new(),
             fn_breakpoints: HashMap::new(),
             breakpoints: HashMap::new(),
+        };
+        let inner = Arc::new(RefCell::new(inner));
+
+        let inner2 = inner.clone();
+        let sink_to_inner = tokio::spawn(receiver_in.for_each(|msg| {
+            inner2.borrow_mut().handle_message(msg);
+            Ok(())
+        }));
+        mem::forget(sink_to_inner);
+
+        let inner2 = inner.clone();
+        let event_listener_to_inner = task::spawn(event_receiver.for_each(|event| {
+            inner2.borrow_mut().handle_debug_event(event);
+            Ok(())
+        }));
+        mem::forget(event_listener_to_inner);
+
+        DebugSession {
+            inner,
+            sender_in,
+            receiver_out,
         }
     }
+}
 
-    pub fn handle_message(&mut self, message: ProtocolMessage) {
+impl Stream for DebugSession {
+    type Item = ProtocolMessage;
+    type Error = ();
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        self.receiver_out.poll()
+    }
+}
+
+impl Sink for DebugSession {
+    type SinkItem = ProtocolMessage;
+    type SinkError = ();
+    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+        self.sender_in.start_send(item).map_err(|err| panic!("{:?}", err))
+    }
+    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
+        self.sender_in.poll_complete().map_err(|err| panic!("{:?}", err))
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+unsafe impl Send for DebugSession {}
+
+impl DebugSessionInner {
+    fn handle_message(&mut self, message: ProtocolMessage) {
         match message {
             ProtocolMessage::Request(request) => self.handle_request(request),
             ProtocolMessage::Response(response) => self.handle_response(response),
@@ -168,7 +229,9 @@ impl DebugSession {
                 message: Some(format!("{}", err)),
             }),
         };
-        self.send_message.try_send(response).map_err(|err| panic!("Could not send response: {}", err));
+        self.send_message
+            .try_send(response)
+            .map_err(|err| panic!("Could not send response: {}", err));
     }
 
     fn send_event(&mut self, event_body: EventBody) {
@@ -176,25 +239,14 @@ impl DebugSession {
             seq: 0,
             body: event_body,
         });
-        self.send_message.try_send(event).map_err(|err| panic!("Could not send event: {}", err));
+        self.send_message
+            .try_send(event)
+            .map_err(|err| panic!("Could not send event: {}", err));
     }
 
     fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<Capabilities, Error> {
-        self.debugger = Initialized(lldb::SBDebugger::create(false));
+        self.debugger = Initialized(SBDebugger::create(false));
         self.debugger.set_async(true);
-
-        // let (sender, recver) = sync_channel::<lldb::SBEvent>(100);
-
-        // WorkerThread::spawn(move |token| {
-        //     let listener = lldb::SBListener::new_with_name("DebugSession");
-        //     let mut event = lldb::SBEvent::new();
-        //     while !token.is_cancelled() {
-        //         if listener.wait_for_event(1, &mut event) {
-        //             sender.send(event);
-        //             event = lldb::SBEvent::new();
-        //         }
-        //     }
-        // });
 
         let caps = Capabilities {
             supports_configuration_done_request: true,
@@ -261,11 +313,11 @@ impl DebugSession {
     fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<Box<AsyncResponder>, Error> {
         self.target = Initialized(self.debugger.create_target(&args.program, None, None, false)?);
         self.send_event(EventBody::initialized);
-        Ok(Box::new(move |s: &mut DebugSession| s.complete_launch(args)))
+        Ok(Box::new(move |s: &mut DebugSessionInner| s.complete_launch(args)))
     }
 
     fn complete_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody, Error> {
-        let mut launch_info = lldb::SBLaunchInfo::new();
+        let mut launch_info = SBLaunchInfo::new();
         self.process = Initialized(self.target.launch(launch_info)?);
         Ok(ResponseBody::launch)
     }
@@ -291,5 +343,9 @@ impl DebugSession {
             });
         }
         Ok(response)
+    }
+
+    fn handle_debug_event(&mut self, event: SBEvent) {
+        info!("Received debug event: {:?}", event);
     }
 }
