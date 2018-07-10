@@ -7,6 +7,7 @@ use std::ffi::{CStr, CString};
 use std::fmt;
 use std::mem;
 use std::os::raw::c_char;
+//use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
 use std::str;
@@ -21,7 +22,10 @@ pub type BreakpointID = u32;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-fn with_cstr<R, F: FnOnce(*const i8) -> R>(s: &str, f: F) -> R {
+fn with_cstr<R, F>(s: &str, f: F) -> R
+where
+    F: FnOnce(*const i8) -> R,
+{
     let allocated;
     let mut buffer: [u8; 256] = unsafe { mem::uninitialized() };
     let ptr: *const i8 = if s.len() < buffer.len() {
@@ -35,11 +39,35 @@ fn with_cstr<R, F: FnOnce(*const i8) -> R>(s: &str, f: F) -> R {
     f(ptr)
 }
 
-fn with_opt_cstr<R, F: FnOnce(*const i8) -> R>(s: Option<&str>, f: F) -> R {
+fn with_opt_cstr<R, F>(s: Option<&str>, f: F) -> R
+where
+    F: FnOnce(*const i8) -> R,
+{
     match s {
         Some(s) => with_cstr(s, f),
         None => f(ptr::null()),
     }
+}
+
+fn get_string<F>(initial_capacity: usize, f: F) -> String
+where
+    F: Fn(*mut c_char, usize) -> usize,
+{
+    let mut buffer = Vec::with_capacity(initial_capacity);
+    let mut size = f(buffer.as_ptr() as *mut c_char, buffer.capacity());
+    if (size as isize) < 0 {
+        panic!();
+    }
+    if size >= buffer.capacity() {
+        let additional = size - buffer.capacity() + 1;
+        buffer.reserve(additional);
+        size = f(buffer.as_ptr() as *mut c_char, buffer.capacity());
+        if (size as isize) < 0 {
+            panic!();
+        }
+    }
+    unsafe { buffer.set_len(size) };
+    String::from_utf8(buffer).unwrap()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -97,6 +125,11 @@ impl SBDebugger {
             return SBDebugger::Create(source_init_files);
         })
     }
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBDebugger*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
     pub fn async(&self) -> bool {
         cpp!(unsafe [self as "SBDebugger*"]-> bool as "bool" {
             return self->GetAsync();
@@ -140,6 +173,11 @@ impl SBError {
     pub fn new() -> SBError {
         cpp!(unsafe [] -> SBError as "SBError" { return SBError(); })
     }
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBError*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
     pub fn success(&self) -> bool {
         cpp!(unsafe [self as "SBError*"] -> bool as "bool" { return self->Success(); })
     }
@@ -161,6 +199,11 @@ cpp_class!(pub unsafe struct SBTarget as "SBTarget");
 unsafe impl Send for SBTarget {}
 
 impl SBTarget {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBTarget*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
     pub fn launch(&self, mut launch_info: SBLaunchInfo) -> Result<SBProcess, SBError> {
         let mut error = SBError::new();
 
@@ -218,6 +261,11 @@ impl SBEvent {
             return SBEvent();
         })
     }
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBEvent*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
     pub fn get_cstring_from_event(event: &SBEvent) -> Option<&CStr> {
         unsafe {
             let ptr = cpp!([event as "SBEvent*"] -> *const c_char as "const char*" {
@@ -235,7 +283,7 @@ impl SBEvent {
             return self->GetDescription(*description);
         })
     }
-    pub fn event_type(&self) -> u32 {
+    pub fn flags(&self) -> u32 {
         cpp!(unsafe [self as "SBEvent*"] -> u32 as "uint32_t" {
             return self->GetType();
         })
@@ -249,7 +297,15 @@ impl SBEvent {
             None
         }
     }
-    // pub fn as_breakpoint_event(&self) -> Option<SBBreakpointEvent> {}
+    pub fn as_breakpoint_event(&self) -> Option<SBBreakpointEvent> {
+        if cpp!(unsafe [self as "SBEvent*"] -> bool as "bool" {
+            return SBBreakpoint::EventIsBreakpointEvent(*self);
+        }) {
+            Some(SBBreakpointEvent(self))
+        } else {
+            None
+        }
+    }
     // pub fn as_target_event(&self) -> Option<SBTargetEvent> {}
     // pub fn as_thread_event(&self) -> Option<SBThreadEvent> {}
 }
@@ -316,11 +372,11 @@ pub enum ProcessState {
     Suspended = 11,
 }
 
-// struct SBBreakpointEvent(&SBEvent);
+pub struct SBBreakpointEvent<'a>(&'a SBEvent);
 
-// struct SBTargetEvent(&SBEvent);
+pub struct SBTargetEvent<'a>(&'a SBEvent);
 
-// struct SBThreadEvent(&SBEvent);
+pub struct SBThreadEvent<'a>(&'a SBEvent);
 
 // Possible values for SBEvent::event_type()
 
@@ -368,6 +424,11 @@ impl SBStream {
             return SBStream();
         })
     }
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBStream*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
     pub fn data(&self) -> &[u8] {
         unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
     }
@@ -407,6 +468,11 @@ impl SBListener {
             })
         })
     }
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBListener*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
     pub fn wait_for_event(&self, num_seconds: u32, event: &mut SBEvent) -> bool {
         cpp!(unsafe [self as "SBListener*", num_seconds as "uint32_t", event as "SBEvent*"] -> bool as "bool" {
             return self->WaitForEvent(num_seconds, *event);
@@ -421,27 +487,45 @@ cpp_class!(pub unsafe struct SBProcess as "SBProcess");
 unsafe impl Send for SBProcess {}
 
 impl SBProcess {
-    pub fn threads<'a>(&'a self) -> impl Iterator<Item = SBThread> + 'a {
-        let num_threads = cpp!(unsafe [self as "SBProcess*"] -> u32 as "uint32_t" {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBProcess*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
+    pub fn num_threads(&self) -> u32 {
+        cpp!(unsafe [self as "SBProcess*"] -> u32 as "uint32_t" {
                 return self->GetNumThreads();
-            });
-
+        })
+    }
+    pub fn threads<'a>(&'a self) -> impl Iterator<Item = SBThread> + 'a {
+        let num_threads = self.num_threads();
         let mut index = 0;
         SBIterator::new(Some(num_threads as usize), move || {
             if index < num_threads {
                 index += 1;
-                Some(
-                    cpp!(unsafe [self as "SBProcess*", index as "uint32_t"] -> SBThread as "SBThread" {
-                        return self->GetThreadAtIndex(index);
-                    }),
-                )
+                Some(cpp!(unsafe [self as "SBProcess*", index as "uint32_t"]
+                            -> SBThread as "SBThread" {
+                        return self->GetThreadAtIndex(index - 1);
+                }))
             } else {
                 None
             }
         })
     }
-    pub fn exit_status(&self) -> Option<i32> {
-
+    pub fn exit_status(&self) -> i32 {
+        cpp!(unsafe [self as "SBProcess*"] -> i32 as "int32_t" {
+            return self->GetExitStatus();
+        })
+    }
+    pub fn selected_thread(&self) -> SBThread {
+        cpp!(unsafe [self as "SBProcess*"] -> SBThread as "SBThread" {
+            return self->GetSelectedThread();
+        })
+    }
+    pub fn set_selected_thread(&self, thread: &SBThread) -> bool {
+        cpp!(unsafe [self as "SBProcess*", thread as "SBThread*"] -> bool as "bool" {
+            return self->SetSelectedThread(*thread);
+        })
     }
 
     pub const eBroadcastBitStateChanged: u32 = 1;
@@ -459,6 +543,11 @@ cpp_class!(pub unsafe struct SBThread as "SBThread");
 unsafe impl Send for SBThread {}
 
 impl SBThread {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBThread*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
     pub fn index_id(&self) -> u32 {
         cpp!(unsafe [self as "SBThread*"] -> u32 as "uint32_t" {
             return self->GetIndexID();
@@ -469,6 +558,33 @@ impl SBThread {
             return self->GetThreadID();
         })
     }
+    pub fn stop_reason(&self) -> StopReason {
+        cpp!(unsafe [self as "SBThread*"] -> StopReason as "uint32_t" {
+            return self->GetStopReason();
+        })
+    }
+    pub fn stop_description(&self) -> String {
+        get_string(64, |ptr, size| {
+            cpp!(unsafe [self as "SBThread*", ptr as "char*", size as "size_t"] -> usize as "size_t" {
+                return self->GetStopDescription(ptr, size);
+            })
+        })
+    }
+}
+
+#[repr(u32)]
+pub enum StopReason {
+    Invalid = 0,
+    None = 1,
+    Trace = 2,
+    Breakpoint = 3,
+    Watchpoint = 4,
+    Signal = 5,
+    Exception = 6,
+    Exec = 7, // Program was re-exec'ed
+    PlanComplete = 8,
+    ThreadExiting = 9,
+    Instrumentation = 10,
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -478,14 +594,164 @@ cpp_class!(pub unsafe struct SBBreakpoint as "SBBreakpoint");
 unsafe impl Send for SBBreakpoint {}
 
 impl SBBreakpoint {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBBreakpoint*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
     pub fn id(&self) -> u32 {
         cpp!(unsafe [self as "SBBreakpoint*"] -> BreakpointID as "uint32_t" {
             return self->GetID();
         })
     }
-    pub fn event_is_breakpoint_event(event: &SBEvent) -> bool {
-        cpp!(unsafe [event as "SBEvent*"] -> bool as "bool" {
-            return SBBreakpoint::EventIsBreakpointEvent(*event);
+    pub fn num_locations(&self) -> u32 {
+        cpp!(unsafe [self as "SBBreakpoint*"] -> usize as "size_t" {
+            return self->GetNumLocations();
+        }) as u32
+    }
+    pub fn num_resolved_locations(&self) -> u32 {
+        cpp!(unsafe [self as "SBBreakpoint*"] -> usize as "size_t" {
+            return self->GetNumResolvedLocations();
+        }) as u32
+    }
+    pub fn locations<'a>(&'a self) -> impl Iterator<Item = SBBreakpointLocation> + 'a {
+        let num_locations = self.num_locations();
+        let mut index = 0;
+        SBIterator::new(Some(num_locations as usize), move || {
+            if index < num_locations {
+                index += 1;
+                Some(cpp!(unsafe [self as "SBBreakpoint*", index as "uint32_t"]
+                            -> SBBreakpointLocation as "SBBreakpointLocation" {
+                        return self->GetLocationAtIndex(index - 1);
+                }))
+            } else {
+                None
+            }
+        })
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBBreakpointLocation as "SBBreakpointLocation");
+
+unsafe impl Send for SBBreakpointLocation {}
+
+impl SBBreakpointLocation {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBBreakpointLocation*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
+    pub fn id(&self) -> u32 {
+        cpp!(unsafe [self as "SBBreakpointLocation*"] -> BreakpointID as "uint32_t" {
+            return self->GetID();
+        })
+    }
+    pub fn address(&self) -> SBAddress {
+        cpp!(unsafe [self as "SBBreakpointLocation*"] -> SBAddress as "SBAddress" {
+            return self->GetAddress();
+        })
+    }
+    pub fn breakpoint(&self) -> SBBreakpoint {
+        cpp!(unsafe [self as "SBBreakpointLocation*"] -> SBBreakpoint as "SBBreakpoint" {
+            return self->GetBreakpoint();
+        })
+    }
+    pub fn is_enabled(&self) -> bool {
+        cpp!(unsafe [self as "SBBreakpointLocation*"] -> bool as "bool" {
+            return self->IsEnabled();
+        })
+    }
+    pub fn set_enabled(&self, enabled: bool) {
+        cpp!(unsafe [self as "SBBreakpointLocation*", enabled as "bool"] {
+            self->SetEnabled(enabled);
+        })
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBAddress as "SBAddress");
+
+unsafe impl Send for SBAddress {}
+
+impl SBAddress {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBAddress*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBLineEntry as "SBLineEntry");
+
+unsafe impl Send for SBLineEntry {}
+
+impl SBLineEntry {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBLineEntry*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
+    pub fn line(&self) -> u32 {
+        cpp!(unsafe [self as "SBLineEntry*"] -> u32 as "uint32_t" {
+            return self->GetLine();
+        })
+    }
+    pub fn column(&self) -> u32 {
+        cpp!(unsafe [self as "SBLineEntry*"] -> u32 as "uint32_t" {
+            return self->GetColumn();
+        })
+    }
+    pub fn file_spec(&self) -> SBFileSpec {
+        cpp!(unsafe [self as "SBLineEntry*"] -> SBFileSpec as "SBFileSpec" {
+            return self->GetFileSpec();
+        })
+    }
+    pub fn start_address(&self) -> SBAddress {
+        cpp!(unsafe [self as "SBLineEntry*"] -> SBAddress as "SBAddress" {
+            return self->GetStartAddress();
+        })
+    }
+    pub fn end_address(&self) -> SBAddress {
+        cpp!(unsafe [self as "SBLineEntry*"] -> SBAddress as "SBAddress" {
+            return self->GetEndAddress();
+        })
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBFileSpec as "SBFileSpec");
+
+unsafe impl Send for SBFileSpec {}
+
+impl SBFileSpec {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBFileSpec*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
+    pub fn filename(&self) -> &str {
+        let ptr = cpp!(unsafe [self as "SBFileSpec*"] -> *const c_char as "const char*" {
+            return self->GetFilename();
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+    pub fn directory(&self) -> &str {
+        let ptr = cpp!(unsafe [self as "SBFileSpec*"] -> *const c_char as "const char*" {
+            return self->GetDirectory();
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+    pub fn path(&self) -> String {
+        get_string(64, |ptr, size| {
+            cpp!(unsafe [self as "SBFileSpec*", ptr as "char*", size as "size_t"] -> u32 as "uint32_t" {
+                return self->GetPath(ptr, size);
+            }) as usize
         })
     }
 }

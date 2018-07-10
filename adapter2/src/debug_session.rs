@@ -58,7 +58,7 @@ enum FileId {
 enum BreakpointKind {
     Source {
         file_path: String,
-        resolved_line: u32,
+        resolved_line: Option<u32>,
         valid_locations: Vec<BreakpointID>,
     },
     Function,
@@ -293,26 +293,68 @@ impl DebugSessionInner {
     ) -> Vec<Breakpoint> {
         let mut breakpoints = vec![];
         for req in req_bps {
-            let bp = if let Some(bp_id) = existing_bps.get(&req.line).cloned() {
-                self.target.find_breakpoint_by_id(bp_id)
-            } else {
-                let file_name = Path::new(file_path).file_name().unwrap().to_str().unwrap();
-                let bp = self.target.breakpoint_create_by_location(file_name, req.line as u32);
-                existing_bps.insert(req.line, bp.id());
-                bp
-            };
-            breakpoints.push(Breakpoint {
-                id: Some(bp.id() as i64),
-                verified: true,
+            let mut bp_resp = Breakpoint {
+                id: None,
+                verified: false,
                 column: None,
                 end_column: None,
                 line: None,
                 end_line: None,
                 message: None,
                 source: None,
-            });
+            };
+
+            let bp = if let Some(bp_id) = existing_bps.get(&req.line).cloned() {
+                let bp = self.target.find_breakpoint_by_id(bp_id);
+                bp_resp.id = Some(bp.id() as i64);
+                bp_resp.verified = true;
+                bp
+            } else {
+                let file_name = Path::new(file_path).file_name().unwrap().to_str().unwrap();
+                let bp = self.target.breakpoint_create_by_location(file_name, req.line as u32);
+
+                let mut bp_info = BreakpointInfo {
+                    id: bp.id(),
+                    kind: BreakpointKind::Source {
+                        file_path: file_path.to_owned(),
+                        resolved_line: None,
+                        valid_locations: vec![],
+                    },
+                    condition: None,
+                    log_message: None,
+                    ignore_count: 0
+                };
+                existing_bps.insert(req.line, bp_info.id);
+                bp_resp.id = Some(bp_info.id as i64);
+
+                // Filter locations on full source file path
+                for bp_loc in bp.locations() {
+                    if !self.is_valid_source_bp_location(&bp_loc, &mut bp_info) {
+                        bp_loc.set_enabled(false);
+                        //info!("Disabled BP location {}", bp_loc);
+                    }
+                }
+                match bp_info.kind {
+                    BreakpointKind::Source
+                }
+                if let Some(line) = bp_info.kind.resolved_line {
+                    bp_resp.verified = true;
+                    bp_resp.line = Some(line);
+                    bp_resp.source = Some(Source {
+                        .. Default::default()
+                    });
+                }
+                bp
+            };
+            // TODO: set condition, etc
+            breakpoints.push(bp_resp);
         }
         breakpoints
+    }
+
+    fn is_valid_source_bp_location(&mut self, bp_loc: &SBBreakpointLocation, bp_info:& mut BreakpointInfo) -> bool {
+        // TODO
+        true
     }
 
     fn handle_set_function_breakpoints(
@@ -366,34 +408,82 @@ impl DebugSessionInner {
         debug!("Debug event: {}", event);
         if let Some(process_event) = event.as_process_event() {
             self.handle_process_event(&process_event);
-        } else if SBBreakpoint::event_is_breakpoint_event(&event) {
+        } else if let Some(bp_event) = event.as_breakpoint_event() {
             //self.notify_breakpoint(event);
         }
     }
 
     fn handle_process_event(&mut self, process_event: &SBProcessEvent) {
-        let ty = process_event.as_event().event_type();
-        if ty & SBProcess::eBroadcastBitStateChanged != 0 {
+        let flags = process_event.as_event().flags();
+        if flags & SBProcess::eBroadcastBitStateChanged != 0 {
             match process_event.process_state() {
                 ProcessState::Running => self.send_event(EventBody::continued(ContinuedEventBody {
                     all_threads_continued: Some(true),
                     thread_id: 0,
                 })),
-                ProcessState::Stopped if !process_event.restarted()  =>self.notify_process_stopped(&process_event)
+                ProcessState::Stopped if !process_event.restarted() => self.notify_process_stopped(&process_event),
                 ProcessState::Crashed => self.notify_process_stopped(&process_event),
                 ProcessState::Exited => {
-                    self.send_event(EventBody::exited(ExitedEventBody {
-                        exit_code:0
-                    }));
-                    self.send_event(EventBody::terminated(TerminatedEventBody {restart:None}));
-                })),
+                    let exit_code = self.process.exit_status() as i64;
+                    self.send_event(EventBody::exited(ExitedEventBody { exit_code }));
+                    self.send_event(EventBody::terminated(TerminatedEventBody { restart: None }));
                 }
-
-
+                ProcessState::Detached => self.send_event(EventBody::terminated(TerminatedEventBody { restart: None })),
                 _ => (),
             }
         }
     }
 
-    fn notify_process_stopped(&mut self, event: &SBProcessEvent) {}
+    fn notify_process_stopped(&mut self, event: &SBProcessEvent) {
+        // Find thread that has caused this stop
+        let mut stopped_thread = None;
+        // Check the currently selected thread first
+        let selected_thread = self.process.selected_thread();
+        stopped_thread = match selected_thread.stop_reason() {
+            StopReason::Invalid | StopReason::None => None,
+            _ => Some(selected_thread),
+        };
+        // Fall back to scanning all threads in the process
+        if stopped_thread.is_none() {
+            for thread in self.process.threads() {
+                match thread.stop_reason() {
+                    StopReason::Invalid | StopReason::None => (),
+                    _ => {
+                        self.process.set_selected_thread(&thread);
+                        stopped_thread = Some(thread);
+                        break;
+                    }
+                }
+            }
+        }
+        // Analyze stop reason
+        let (stop_reason_str, description) = if let Some(ref stopped_thread) = stopped_thread {
+            let stop_reason = stopped_thread.stop_reason();
+            match stop_reason {
+                StopReason::Breakpoint => ("breakpoint", None),
+                StopReason::Trace | StopReason::PlanComplete => ("step", None),
+                _ => {
+                    // Print stop details for these types
+                    let description = Some(stopped_thread.stop_description());
+                    match stop_reason {
+                        StopReason::Watchpoint => ("watchpoint", description),
+                        StopReason::Signal => ("signal", description),
+                        StopReason::Exception => ("exception", description),
+                        _ => ("unknown", description),
+                    }
+                }
+            }
+        } else {
+            ("unknown", None)
+        };
+
+        self.send_event(EventBody::stopped(StoppedEventBody {
+            all_threads_stopped: Some(true),
+            description: None,
+            preserve_focus_hint: None,
+            reason: stop_reason_str.to_owned(),
+            text: description,
+            thread_id: stopped_thread.map(|t| t.thread_id() as i64),
+        }));
+    }
 }

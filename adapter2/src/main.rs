@@ -48,6 +48,7 @@ fn main() {
 
     let server = listener
         .incoming()
+        .take(1)
         .for_each(|conn| {
             conn.set_nodelay(true);
             let (to_client, from_client) = wire_protocol::Codec::new().framed(conn).split();
