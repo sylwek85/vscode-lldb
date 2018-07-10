@@ -1,13 +1,15 @@
-#![feature(proc_macro)]
+#![allow(non_upper_case_globals)]
 
 #[macro_use]
 extern crate cpp;
 
 use std::ffi::{CStr, CString};
+use std::fmt;
 use std::mem;
 use std::os::raw::c_char;
 use std::ptr;
-use std::fmt;
+use std::slice;
+use std::str;
 
 cpp!{{
     #include <lldb/API/LLDB.h>
@@ -77,6 +79,8 @@ where
 
 cpp_class!(pub unsafe struct SBDebugger as "SBDebugger");
 
+unsafe impl Send for SBDebugger {}
+
 impl SBDebugger {
     pub fn initialize() {
         cpp!(unsafe [] {
@@ -130,6 +134,8 @@ impl SBDebugger {
 
 cpp_class!(pub unsafe struct SBError as "SBError");
 
+unsafe impl Send for SBError {}
+
 impl SBError {
     pub fn new() -> SBError {
         cpp!(unsafe [] -> SBError as "SBError" { return SBError(); })
@@ -151,6 +157,8 @@ impl SBError {
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
 cpp_class!(pub unsafe struct SBTarget as "SBTarget");
+
+unsafe impl Send for SBTarget {}
 
 impl SBTarget {
     pub fn launch(&self, mut launch_info: SBLaunchInfo) -> Result<SBProcess, SBError> {
@@ -183,6 +191,8 @@ impl SBTarget {
 
 cpp_class!(pub unsafe struct SBLaunchInfo as "SBLaunchInfo");
 
+unsafe impl Send for SBLaunchInfo {}
+
 impl SBLaunchInfo {
     pub fn new() -> SBLaunchInfo {
         cpp!(unsafe [] -> SBLaunchInfo as "SBLaunchInfo" {
@@ -200,32 +210,189 @@ impl SBLaunchInfo {
 
 cpp_class!(pub unsafe struct SBEvent as "SBEvent");
 
+unsafe impl Send for SBEvent {}
+
 impl SBEvent {
     pub fn new() -> SBEvent {
         cpp!(unsafe [] -> SBEvent as "SBEvent" {
             return SBEvent();
         })
     }
-
-    pub fn get_cstring_from_event(event: &SBEvent) -> &CStr {
+    pub fn get_cstring_from_event(event: &SBEvent) -> Option<&CStr> {
         unsafe {
             let ptr = cpp!([event as "SBEvent*"] -> *const c_char as "const char*" {
                 return SBEvent::GetCStringFromEvent(*event);
             });
-            CStr::from_ptr(ptr)
+            if ptr.is_null() {
+                None
+            } else {
+                Some(CStr::from_ptr(ptr))
+            }
+        }
+    }
+    pub fn get_description(&self, description: &mut SBStream) -> bool {
+        cpp!(unsafe [self as "SBEvent*", description as "SBStream*"] -> bool as "bool" {
+            return self->GetDescription(*description);
+        })
+    }
+    pub fn event_type(&self) -> u32 {
+        cpp!(unsafe [self as "SBEvent*"] -> u32 as "uint32_t" {
+            return self->GetType();
+        })
+    }
+    pub fn as_process_event(&self) -> Option<SBProcessEvent> {
+        if cpp!(unsafe [self as "SBEvent*"] -> bool as "bool" {
+            return SBProcess::EventIsProcessEvent(*self);
+        }) {
+            Some(SBProcessEvent(self))
+        } else {
+            None
+        }
+    }
+    // pub fn as_breakpoint_event(&self) -> Option<SBBreakpointEvent> {}
+    // pub fn as_target_event(&self) -> Option<SBTargetEvent> {}
+    // pub fn as_thread_event(&self) -> Option<SBThreadEvent> {}
+}
+
+impl fmt::Display for SBEvent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut descr = SBStream::new();
+        if self.get_description(&mut descr) {
+            match str::from_utf8(descr.data()) {
+                Ok(s) => f.write_str(s),
+                Err(_) => Err(fmt::Error),
+            }
+        } else {
+            Ok(())
         }
     }
 }
 
-impl fmt::Debug for SBEvent {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", SBEvent::get_cstring_from_event(self))
+pub struct SBProcessEvent<'a>(&'a SBEvent);
+
+impl<'a> SBProcessEvent<'a> {
+    pub fn as_event(&self) -> &SBEvent {
+        self.0
+    }
+    pub fn process(&self) -> SBProcess {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*"] -> SBProcess as "SBProcess" {
+            return SBProcess::GetProcessFromEvent(*event);
+        })
+    }
+    pub fn process_state(&self) -> ProcessState {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*"] -> ProcessState as "uint32_t" {
+            return SBProcess::GetStateFromEvent(*event);
+        })
+    }
+    pub fn restarted(&self) -> bool {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*"] -> bool as "bool" {
+            return SBProcess::GetRestartedFromEvent(*event);
+        })
+    }
+    pub fn interrupted(&self) -> bool {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*"] -> bool as "bool" {
+            return SBProcess::GetInterruptedFromEvent(*event);
+        })
+    }
+}
+
+#[repr(u32)]
+pub enum ProcessState {
+    Invalid = 0,
+    Unloaded = 1,
+    Connected = 2,
+    Attaching = 3,
+    Launching = 4,
+    Stopped = 5,
+    Running = 6,
+    Stepping = 7,
+    Crashed = 8,
+    Detached = 9,
+    Exited = 10,
+    Suspended = 11,
+}
+
+// struct SBBreakpointEvent(&SBEvent);
+
+// struct SBTargetEvent(&SBEvent);
+
+// struct SBThreadEvent(&SBEvent);
+
+// Possible values for SBEvent::event_type()
+
+// pub const SBCommandInterpreter_eBroadcastBitAsynchronousErrorData: u32 = 16;
+// pub const SBCommandInterpreter_eBroadcastBitAsynchronousOutputData: u32 = 8;
+// pub const SBCommandInterpreter_eBroadcastBitQuitCommandReceived: u32 = 4;
+// pub const SBCommandInterpreter_eBroadcastBitResetPrompt: u32 = 2;
+// pub const SBCommandInterpreter_eBroadcastBitThreadShouldExit: u32 = 1;
+
+// pub const SBCommunication_eAllEventBits: u32 = !0;
+// pub const SBCommunication_eBroadcastBitDisconnected: u32 = 1;
+// pub const SBCommunication_eBroadcastBitPacketAvailable: u32 = 16;
+// pub const SBCommunication_eBroadcastBitReadThreadDidExit: u32 = 4;
+// pub const SBCommunication_eBroadcastBitReadThreadGotBytes: u32 = 2;
+// pub const SBCommunication_eBroadcastBitReadThreadShouldExit: u32 = 8;
+
+// pub const SBProcess_eBroadcastBitInterrupt: u32 = 2;
+// pub const SBProcess_eBroadcastBitProfileData: u32 = 16;
+// pub const SBProcess_eBroadcastBitSTDERR: u32 = 8;
+// pub const SBProcess_eBroadcastBitSTDOUT: u32 = 4;
+// pub const SBProcess_eBroadcastBitStateChanged: u32 = 1;
+// pub const SBProcess_eBroadcastBitStructuredData: u32 = 32;
+
+// pub const SBTarget_eBroadcastBitBreakpointChanged: u32 = 1;
+// pub const SBTarget_eBroadcastBitModulesLoaded: u32 = 2;
+// pub const SBTarget_eBroadcastBitModulesUnloaded: u32 = 4;
+// pub const SBTarget_eBroadcastBitSymbolsLoaded: u32 = 16;
+// pub const SBTarget_eBroadcastBitWatchpointChanged: u32 = 8;
+
+// pub const SBThread_eBroadcastBitSelectedFrameChanged: u32 = 8;
+// pub const SBThread_eBroadcastBitStackChanged: u32 = 1;
+// pub const SBThread_eBroadcastBitThreadResumed: u32 = 4;
+// pub const SBThread_eBroadcastBitThreadSelected: u32 = 16;
+// pub const SBThread_eBroadcastBitThreadSuspended: u32 = 2;
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBStream as "SBStream");
+
+unsafe impl Send for SBStream {}
+
+impl SBStream {
+    pub fn new() -> SBStream {
+        cpp!(unsafe [] -> SBStream as "SBStream" {
+            return SBStream();
+        })
+    }
+    pub fn data(&self) -> &[u8] {
+        unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
+    }
+    pub fn len(&self) -> usize {
+        cpp!(unsafe [self as "SBStream*"] -> usize as "size_t" {
+            return self->GetSize();
+        })
+    }
+    pub fn as_ptr(&self) -> *const u8 {
+        cpp!(unsafe [self as "SBStream*"] -> *const c_char as "const char*" {
+            return self->GetData();
+        }) as *const u8
+    }
+    pub fn clear(&mut self) {
+        cpp!(unsafe [self as "SBStream*"]  {
+            self->Clear();
+        })
     }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
 cpp_class!(pub unsafe struct SBListener as "SBListener");
+
+unsafe impl Send for SBListener {}
 
 impl SBListener {
     pub fn new() -> SBListener {
@@ -251,6 +418,8 @@ impl SBListener {
 
 cpp_class!(pub unsafe struct SBProcess as "SBProcess");
 
+unsafe impl Send for SBProcess {}
+
 impl SBProcess {
     pub fn threads<'a>(&'a self) -> impl Iterator<Item = SBThread> + 'a {
         let num_threads = cpp!(unsafe [self as "SBProcess*"] -> u32 as "uint32_t" {
@@ -271,16 +440,23 @@ impl SBProcess {
             }
         })
     }
-    pub fn event_is_process_event(event: &SBEvent) -> bool {
-        cpp!(unsafe [event as "SBEvent*"] -> bool as "bool" {
-            return SBProcess::EventIsProcessEvent(*event);
-        })
+    pub fn exit_status(&self) -> Option<i32> {
+
     }
+
+    pub const eBroadcastBitStateChanged: u32 = 1;
+    pub const eBroadcastBitInterrupt: u32 = 2;
+    pub const eBroadcastBitSTDOUT: u32 = 4;
+    pub const eBroadcastBitSTDERR: u32 = 8;
+    pub const eBroadcastBitProfileData: u32 = 16;
+    pub const eBroadcastBitStructuredData: u32 = 32;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
 cpp_class!(pub unsafe struct SBThread as "SBThread");
+
+unsafe impl Send for SBThread {}
 
 impl SBThread {
     pub fn index_id(&self) -> u32 {
@@ -298,6 +474,8 @@ impl SBThread {
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
 cpp_class!(pub unsafe struct SBBreakpoint as "SBBreakpoint");
+
+unsafe impl Send for SBBreakpoint {}
 
 impl SBBreakpoint {
     pub fn id(&self) -> u32 {

@@ -35,7 +35,6 @@ use tokio_threadpool::blocking;
 use lldb::*;
 
 mod debug_session;
-mod event_listener;
 mod must_initialize;
 mod wire_protocol;
 

@@ -7,17 +7,17 @@ use std::mem;
 use std::option;
 use std::path::{self, Path};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 use futures::prelude::*;
 use futures::stream;
 use futures::sync::mpsc;
-use tokio::prelude::*;
 use tokio;
+use tokio::prelude::*;
 use tokio_threadpool::blocking;
 
 use debug_protocol::*;
-use event_listener::EventListener;
 use failure;
 use lldb::*;
 use must_initialize::{Initialized, MustInitialize, NotInitialized};
@@ -79,7 +79,7 @@ struct BreakpointInfo {
 
 struct DebugSessionInner {
     send_message: mpsc::Sender<ProtocolMessage>,
-    event_listener: EventListener,
+    event_listener: SBListener,
     debugger: MustInitialize<SBDebugger>,
     target: MustInitialize<SBTarget>,
     process: MustInitialize<SBProcess>,
@@ -90,7 +90,7 @@ struct DebugSessionInner {
 }
 
 pub struct DebugSession {
-    inner: Arc<RefCell<DebugSessionInner>>,
+    inner: Arc<Mutex<DebugSessionInner>>,
     sender_in: mpsc::Sender<ProtocolMessage>,
     receiver_out: mpsc::Receiver<ProtocolMessage>,
 }
@@ -99,31 +99,46 @@ impl DebugSession {
     pub fn new() -> Self {
         let (sender_in, receiver_in) = mpsc::channel(10);
         let (sender_out, receiver_out) = mpsc::channel(10);
-        let (event_listener, event_receiver) = EventListener::new("DebugSession");
 
         let inner = DebugSessionInner {
             send_message: sender_out,
             debugger: NotInitialized,
             target: NotInitialized,
             process: NotInitialized,
-            event_listener: event_listener,
+            event_listener: SBListener::new_with_name("DebugSession"),
             on_configuration_done: None,
             line_breakpoints: HashMap::new(),
             fn_breakpoints: HashMap::new(),
             breakpoints: HashMap::new(),
         };
-        let inner = Arc::new(RefCell::new(inner));
+        let inner = Arc::new(Mutex::new(inner));
 
+        // Dispatch incoming requests to inner.handle_message()
         let inner2 = inner.clone();
-        let sink_to_inner = tokio::spawn(receiver_in.for_each(|msg| {
-            inner2.borrow_mut().handle_message(msg);
+        let sink_to_inner = tokio::spawn(receiver_in.for_each(move |msg| {
+            inner2.lock().unwrap().handle_message(msg);
             Ok(())
         }));
         mem::forget(sink_to_inner);
 
+        // Create a thread listening on inner's event_listener
+        let (mut sender, mut receiver) = mpsc::channel(10);
+        let listener = inner.lock().unwrap().event_listener.clone();
+        thread::spawn(move || {
+            let mut event = SBEvent::new();
+            while sender.poll_ready().is_ok() {
+                if listener.wait_for_event(1, &mut event) {
+                    if sender.try_send(event).is_err() {
+                        break;
+                    }
+                    event = SBEvent::new();
+                }
+            }
+        });
+        // Dispatch incoming events to inner.handle_debug_event()
         let inner2 = inner.clone();
-        let event_listener_to_inner = task::spawn(event_receiver.for_each(|event| {
-            inner2.borrow_mut().handle_debug_event(event);
+        let event_listener_to_inner = tokio::spawn(receiver.for_each(move |event| {
+            inner2.lock().unwrap().handle_debug_event(event);
             Ok(())
         }));
         mem::forget(event_listener_to_inner);
@@ -158,6 +173,7 @@ impl Sink for DebugSession {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 unsafe impl Send for DebugSession {}
+unsafe impl Send for DebugSessionInner {}
 
 impl DebugSessionInner {
     fn handle_message(&mut self, message: ProtocolMessage) {
@@ -318,6 +334,7 @@ impl DebugSessionInner {
 
     fn complete_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody, Error> {
         let mut launch_info = SBLaunchInfo::new();
+        launch_info.set_listener(&self.event_listener);
         self.process = Initialized(self.target.launch(launch_info)?);
         Ok(ResponseBody::launch)
     }
@@ -346,6 +363,37 @@ impl DebugSessionInner {
     }
 
     fn handle_debug_event(&mut self, event: SBEvent) {
-        info!("Received debug event: {:?}", event);
+        debug!("Debug event: {}", event);
+        if let Some(process_event) = event.as_process_event() {
+            self.handle_process_event(&process_event);
+        } else if SBBreakpoint::event_is_breakpoint_event(&event) {
+            //self.notify_breakpoint(event);
+        }
     }
+
+    fn handle_process_event(&mut self, process_event: &SBProcessEvent) {
+        let ty = process_event.as_event().event_type();
+        if ty & SBProcess::eBroadcastBitStateChanged != 0 {
+            match process_event.process_state() {
+                ProcessState::Running => self.send_event(EventBody::continued(ContinuedEventBody {
+                    all_threads_continued: Some(true),
+                    thread_id: 0,
+                })),
+                ProcessState::Stopped if !process_event.restarted()  =>self.notify_process_stopped(&process_event)
+                ProcessState::Crashed => self.notify_process_stopped(&process_event),
+                ProcessState::Exited => {
+                    self.send_event(EventBody::exited(ExitedEventBody {
+                        exit_code:0
+                    }));
+                    self.send_event(EventBody::terminated(TerminatedEventBody {restart:None}));
+                })),
+                }
+
+
+                _ => (),
+            }
+        }
+    }
+
+    fn notify_process_stopped(&mut self, event: &SBProcessEvent) {}
 }
