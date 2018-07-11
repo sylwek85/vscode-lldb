@@ -37,6 +37,7 @@ use lldb::*;
 mod debug_session;
 mod must_initialize;
 mod wire_protocol;
+mod handles;
 
 fn main() {
     env_logger::init();

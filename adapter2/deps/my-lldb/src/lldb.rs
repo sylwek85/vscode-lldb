@@ -72,34 +72,44 @@ where
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-struct SBIterator<Item, GetNext>
+struct SBIterator<Item, GetItem>
 where
-    GetNext: FnMut() -> Option<Item>,
+    GetItem: FnMut(u32) -> Item,
 {
-    size_hint: Option<usize>,
-    get_next: GetNext,
+    size: u32,
+    get_item: GetItem,
+    index: u32,
 }
 
-impl<Item, GetNext> SBIterator<Item, GetNext>
+impl<Item, GetItem> SBIterator<Item, GetItem>
 where
-    GetNext: FnMut() -> Option<Item>,
+    GetItem: FnMut(u32) -> Item,
 {
-    fn new(size_hint: Option<usize>, get_next: GetNext) -> Self {
-        Self { size_hint, get_next }
+    fn new(size: u32, get_item: GetItem) -> Self {
+        Self {
+            size: size,
+            get_item: get_item,
+            index: 0,
+        }
     }
 }
 
-impl<Item, GetNext> Iterator for SBIterator<Item, GetNext>
+impl<Item, GetItem> Iterator for SBIterator<Item, GetItem>
 where
-    GetNext: FnMut() -> Option<Item>,
+    GetItem: FnMut(u32) -> Item,
 {
     type Item = Item;
     fn next(&mut self) -> Option<Self::Item> {
-        (self.get_next)()
+        if self.index < self.size {
+            self.index += 1;
+            Some((self.get_item)(self.index - 1))
+        } else {
+            None
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        return (0, self.size_hint);
+        return (0, Some(self.size as usize));
     }
 }
 
@@ -497,19 +507,17 @@ impl SBProcess {
                 return self->GetNumThreads();
         })
     }
+    pub fn thread_at_index(&self, index: u32) -> SBThread {
+        cpp!(unsafe [self as "SBProcess*", index as "uint32_t"] -> SBThread as "SBThread" {
+            return self->GetThreadAtIndex(index);
+        })
+    }
     pub fn threads<'a>(&'a self) -> impl Iterator<Item = SBThread> + 'a {
-        let num_threads = self.num_threads();
-        let mut index = 0;
-        SBIterator::new(Some(num_threads as usize), move || {
-            if index < num_threads {
-                index += 1;
-                Some(cpp!(unsafe [self as "SBProcess*", index as "uint32_t"]
-                            -> SBThread as "SBThread" {
-                        return self->GetThreadAtIndex(index - 1);
-                }))
-            } else {
-                None
-            }
+        SBIterator::new(self.num_threads(), move |index| self.thread_at_index(index))
+    }
+    pub fn state(&self) -> ProcessState {
+        cpp!(unsafe [self as "SBProcess*"] -> ProcessState as "uint32_t" {
+            return self->GetState();
         })
     }
     pub fn exit_status(&self) -> i32 {
@@ -526,6 +534,26 @@ impl SBProcess {
         cpp!(unsafe [self as "SBProcess*", thread as "SBThread*"] -> bool as "bool" {
             return self->SetSelectedThread(*thread);
         })
+    }
+    pub fn thread_by_id(&self, tid: ThreadID) -> Option<SBThread> {
+        let thread = cpp!(unsafe [self as "SBProcess*", tid as "tid_t"] -> SBThread as "SBThread" {
+            return self->GetThreadByID(tid);
+        });
+        if thread.is_valid() {
+            Some(thread)
+        } else {
+            None
+        }
+    }
+    pub fn thread_by_index_id(&self, index_id: u32) -> Option<SBThread> {
+        let thread = cpp!(unsafe [self as "SBProcess*", index_id as "uint32_t"] -> SBThread as "SBThread" {
+            return self->GetThreadByIndexID(index_id);
+        });
+        if thread.is_valid() {
+            Some(thread)
+        } else {
+            None
+        }
     }
 
     pub const eBroadcastBitStateChanged: u32 = 1;
@@ -548,14 +576,14 @@ impl SBThread {
             return self->IsValid();
         })
     }
-    pub fn index_id(&self) -> u32 {
-        cpp!(unsafe [self as "SBThread*"] -> u32 as "uint32_t" {
-            return self->GetIndexID();
-        })
-    }
     pub fn thread_id(&self) -> ThreadID {
         cpp!(unsafe [self as "SBThread*"] -> ThreadID as "tid_t" {
             return self->GetThreadID();
+        })
+    }
+    pub fn index_id(&self) -> u32 {
+        cpp!(unsafe [self as "SBThread*"] -> u32 as "uint32_t" {
+            return self->GetIndexID();
         })
     }
     pub fn stop_reason(&self) -> StopReason {
@@ -569,6 +597,19 @@ impl SBThread {
                 return self->GetStopDescription(ptr, size);
             })
         })
+    }
+    pub fn num_frames(&self) -> u32 {
+        cpp!(unsafe [self as "SBThread*"] -> u32 as "uint32_t" {
+            return self->GetNumFrames();
+        })
+    }
+    pub fn frame_at_index(&self, index: u32) -> SBFrame {
+        cpp!(unsafe [self as "SBThread*", index as "uint32_t"] -> SBFrame as "SBFrame" {
+            return self->GetFrameAtIndex(index);
+        })
+    }
+    pub fn frames<'a>(&'a self) -> impl Iterator<Item = SBFrame> + 'a {
+        SBIterator::new(self.num_frames(), move |index| self.frame_at_index(index))
     }
 }
 
@@ -585,6 +626,20 @@ pub enum StopReason {
     PlanComplete = 8,
     ThreadExiting = 9,
     Instrumentation = 10,
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBFrame as "SBFrame");
+
+unsafe impl Send for SBFrame {}
+
+impl SBFrame {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBFrame*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -614,20 +669,13 @@ impl SBBreakpoint {
             return self->GetNumResolvedLocations();
         }) as u32
     }
-    pub fn locations<'a>(&'a self) -> impl Iterator<Item = SBBreakpointLocation> + 'a {
-        let num_locations = self.num_locations();
-        let mut index = 0;
-        SBIterator::new(Some(num_locations as usize), move || {
-            if index < num_locations {
-                index += 1;
-                Some(cpp!(unsafe [self as "SBBreakpoint*", index as "uint32_t"]
-                            -> SBBreakpointLocation as "SBBreakpointLocation" {
-                        return self->GetLocationAtIndex(index - 1);
-                }))
-            } else {
-                None
-            }
+    pub fn location_at_index(&self, index: u32) -> SBBreakpointLocation {
+        cpp!(unsafe [self as "SBBreakpoint*", index as "uint32_t"] -> SBBreakpointLocation as "SBBreakpointLocation" {
+            return self->GetLocationAtIndex(index);
         })
+    }
+    pub fn locations<'a>(&'a self) -> impl Iterator<Item = SBBreakpointLocation> + 'a {
+        SBIterator::new(self.num_locations(), move |index| self.location_at_index(index))
     }
 }
 

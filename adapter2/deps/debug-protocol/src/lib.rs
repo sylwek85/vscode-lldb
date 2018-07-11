@@ -159,6 +159,21 @@ pub struct Capabilities {
     pub supports_log_points: bool,
 }
 
+impl Default for Breakpoint {
+    fn default() -> Self {
+        Breakpoint {
+            id: None,
+            verified: false,
+            column: None,
+            end_column: None,
+            line: None,
+            end_line: None,
+            message: None,
+            source: None,
+        }
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]

@@ -221,7 +221,12 @@ impl DebugSessionInner {
             RequestArguments::configurationDone => self
                 .handle_configuration_done()
                 .map(|r| ResponseBody::configurationDone),
-            RequestArguments::threads => self.handle_threads().map(|r| ResponseBody::threads(r)),
+            RequestArguments::threads => self // br
+                .handle_threads()
+                .map(|r| ResponseBody::threads(r)),
+            RequestArguments::stackTrace(args) => self // br
+                .handle_stack_trace(args)
+                .map(|r| ResponseBody::stackTrace(r)),
             _ => {
                 error!("No handler for request message: {:?}", request);
                 Err(Error::Internal("Not implemented.".into()))
@@ -293,16 +298,7 @@ impl DebugSessionInner {
     ) -> Vec<Breakpoint> {
         let mut breakpoints = vec![];
         for req in req_bps {
-            let mut bp_resp = Breakpoint {
-                id: None,
-                verified: false,
-                column: None,
-                end_column: None,
-                line: None,
-                end_line: None,
-                message: None,
-                source: None,
-            };
+            let mut bp_resp = Breakpoint { ..Default::default() };
 
             let bp = if let Some(bp_id) = existing_bps.get(&req.line).cloned() {
                 let bp = self.target.find_breakpoint_by_id(bp_id);
@@ -322,7 +318,7 @@ impl DebugSessionInner {
                     },
                     condition: None,
                     log_message: None,
-                    ignore_count: 0
+                    ignore_count: 0,
                 };
                 existing_bps.insert(req.line, bp_info.id);
                 bp_resp.id = Some(bp_info.id as i64);
@@ -335,14 +331,18 @@ impl DebugSessionInner {
                     }
                 }
                 match bp_info.kind {
-                    BreakpointKind::Source
-                }
-                if let Some(line) = bp_info.kind.resolved_line {
-                    bp_resp.verified = true;
-                    bp_resp.line = Some(line);
-                    bp_resp.source = Some(Source {
-                        .. Default::default()
-                    });
+                    BreakpointKind::Source { resolved_line, .. } => {
+                        if let Some(line) = resolved_line {
+                            bp_resp.verified = true;
+                            bp_resp.line = Some(line as i64);
+                            bp_resp.source = Some(Source {
+                                name: Some(file_name.to_owned()),
+                                path: Some(file_path.to_owned()),
+                                ..Default::default()
+                            })
+                        }
+                    }
+                    _ => unreachable!(),
                 }
                 bp
             };
@@ -352,7 +352,7 @@ impl DebugSessionInner {
         breakpoints
     }
 
-    fn is_valid_source_bp_location(&mut self, bp_loc: &SBBreakpointLocation, bp_info:& mut BreakpointInfo) -> bool {
+    fn is_valid_source_bp_location(&mut self, bp_loc: &SBBreakpointLocation, bp_info: &mut BreakpointInfo) -> bool {
         // TODO
         true
     }
@@ -402,6 +402,22 @@ impl DebugSessionInner {
             });
         }
         Ok(response)
+    }
+
+    fn handle_stack_trace(&mut self, args: StackTraceArguments) -> Result<StackTraceResponseBody, Error> {
+        let thread = self
+            .process
+            .thread_by_id(args.thread_id as ThreadID)
+            .expect("Invalid thread id");
+        let start_frame = args.start_frame.unwrap_or(0);
+        let levels = args.levels.unwrap_or(std::i64::MAX);
+        for i in start_frame..start_frame + levels {
+            let frame = thread.frame_at_index(i as u32);
+            if !frame.is_valid() {
+                break;
+            }
+        }
+        unimplemented!()
     }
 
     fn handle_debug_event(&mut self, event: SBEvent) {
