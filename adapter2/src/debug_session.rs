@@ -421,19 +421,47 @@ impl DebugSessionInner {
             .process
             .thread_by_id(args.thread_id as ThreadID)
             .expect("Invalid thread id");
+
         let start_frame = args.start_frame.unwrap_or(0);
         let levels = args.levels.unwrap_or(std::i64::MAX);
+
+        let mut stack_frames = vec![];
         for i in start_frame..start_frame + levels {
-            let frame = thread.frame_at_index(i as u32);
-            if !frame.is_valid() {
+            let sbframe = thread.frame_at_index(i as u32);
+            if !sbframe.is_valid() {
                 break;
             }
-            let mut stack_frame = StackFrame {
-                id: self.var_refs.create(None, "", VarsScope::StackFrame(frame.clone())).into(),
-                ..Default::default()
+
+            let mut stack_frame: StackFrame = Default::default();
+            stack_frame.id = self
+                .var_refs
+                .create(None, "", VarsScope::StackFrame(sbframe.clone()))
+                .get() as i64;
+            let pc_address = sbframe.pc_address();
+            stack_frame.name = if let Some(name) = sbframe.function_name() {
+                name.to_owned()
+            } else {
+                format!("{:X}", pc_address.file_address())
             };
+            if let Some(le) = sbframe.line_entry() {
+                let fs = le.file_spec();
+                if let Some(local_path) = self.map_filespec_to_local(&fs) {
+                    stack_frame.line = le.line() as i64;
+                    stack_frame.column = le.column() as i64;
+                    stack_frame.source = Some(Source {
+                        name: Some(fs.filename().to_owned()),
+                        path: Some(fs.path()),
+                        ..Default::default()
+                    });
+                }
+            }
+            stack_frames.push(stack_frame);
         }
-        unimplemented!()
+
+        Ok(StackTraceResponseBody {
+            stack_frames: stack_frames,
+            total_frames: Some(thread.num_frames() as i64),
+        })
     }
 
     fn handle_debug_event(&mut self, event: SBEvent) {
@@ -517,5 +545,9 @@ impl DebugSessionInner {
             text: description,
             thread_id: stopped_thread.map(|t| t.thread_id() as i64),
         }));
+    }
+
+    fn map_filespec_to_local(&mut self, filespec: &SBFileSpec) -> Option<String> {
+        Some(filespec.path())
     }
 }

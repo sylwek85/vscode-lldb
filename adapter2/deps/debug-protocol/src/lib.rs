@@ -13,9 +13,9 @@ pub use generated::{
     EvaluateResponseBody, ExitedEventBody, InitializeRequestArguments, ModuleEventBody, NextArguments, OutputEventBody,
     PauseArguments, ScopesArguments, ScopesResponseBody, SetBreakpointsArguments, SetBreakpointsResponseBody,
     SetExceptionBreakpointsArguments, SetFunctionBreakpointsArguments, SetVariableArguments, SetVariableResponseBody,
-    Source, SourceArguments, SourceBreakpoint, SourceResponseBody, StackTraceArguments, StackTraceResponseBody,
-    StepBackArguments, StepInArguments, StepOutArguments, StoppedEventBody, TerminatedEventBody, Thread,
-    ThreadEventBody, ThreadsResponseBody, VariablesArguments, VariablesResponseBody,
+    Source, SourceArguments, SourceBreakpoint, SourceResponseBody, StackFrame, StackTraceArguments,
+    StackTraceResponseBody, StepBackArguments, StepInArguments, StepOutArguments, StoppedEventBody,
+    TerminatedEventBody, Thread, ThreadEventBody, ThreadsResponseBody, VariablesArguments, VariablesResponseBody,
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -170,6 +170,22 @@ impl Default for Breakpoint {
             end_line: None,
             message: None,
             source: None,
+        }
+    }
+}
+
+impl Default for StackFrame {
+    fn default() -> Self {
+        StackFrame {
+            id: 0,
+            name: String::new(),
+            source: None,
+            line: 0,
+            column: 0,
+            end_column: None,
+            end_line: None,
+            module_id: None,
+            presentation_hint: None,
         }
     }
 }

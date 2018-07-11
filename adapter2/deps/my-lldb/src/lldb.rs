@@ -660,6 +660,16 @@ impl SBFrame {
             unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
         }
     }
+    pub fn line_entry(&self) -> Option<SBLineEntry> {
+        let line_entry = cpp!(unsafe [self as "SBFrame*"] -> SBLineEntry as "SBLineEntry" {
+            return self->GetLineEntry();
+        });
+        if line_entry.is_valid() {
+            Some(line_entry)
+        } else {
+            None
+        }
+    }
     pub fn pc_address(&self) -> SBAddress {
         cpp!(unsafe [self as "SBFrame*"] -> SBAddress as "SBAddress" {
             return self->GetPCAddress();
@@ -754,6 +764,31 @@ impl SBAddress {
         cpp!(unsafe [self as "SBAddress*"] -> bool as "bool" {
             return self->IsValid();
         })
+    }
+    pub fn file_address(&self) -> usize {
+        cpp!(unsafe [self as "SBAddress*"] -> usize as "size_t" {
+            return self->GetFileAddress();
+        })
+    }
+    pub fn load_address(&self, target: &SBTarget) -> usize {
+        cpp!(unsafe [self as "SBAddress*", target as "SBTarget*"] -> usize as "size_t" {
+            return self->GetLoadAddress(*target);
+        })
+    }
+    pub fn offset(&self) -> usize {
+        cpp!(unsafe [self as "SBAddress*"] -> usize as "size_t" {
+            return self->GetOffset();
+        })
+    }
+    pub fn line_entry(&self) -> Option<SBLineEntry> {
+        let line_entry = cpp!(unsafe [self as "SBAddress*"] -> SBLineEntry as "SBLineEntry" {
+            return self->GetLineEntry();
+        });
+        if line_entry.is_valid() {
+            Some(line_entry)
+        } else {
+            None
+        }
     }
 }
 
