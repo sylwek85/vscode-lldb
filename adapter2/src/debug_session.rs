@@ -426,27 +426,27 @@ impl DebugSessionInner {
         let levels = args.levels.unwrap_or(std::i64::MAX);
 
         let mut stack_frames = vec![];
-        for i in start_frame..start_frame + levels {
-            let sbframe = thread.frame_at_index(i as u32);
-            if !sbframe.is_valid() {
+        for i in start_frame..(start_frame + levels) {
+            let frame = thread.frame_at_index(i as u32);
+            if !frame.is_valid() {
                 break;
             }
 
+            let handle = self.var_refs.create(None, "", VarsScope::StackFrame(frame.clone()));
             let mut stack_frame: StackFrame = Default::default();
-            stack_frame.id = self
-                .var_refs
-                .create(None, "", VarsScope::StackFrame(sbframe.clone()))
-                .get() as i64;
-            let pc_address = sbframe.pc_address();
-            stack_frame.name = if let Some(name) = sbframe.function_name() {
+
+            stack_frame.id = handle.get() as i64;
+            let pc_address = frame.pc_address();
+            stack_frame.name = if let Some(name) = frame.function_name() {
                 name.to_owned()
             } else {
                 format!("{:X}", pc_address.file_address())
             };
-            if let Some(le) = sbframe.line_entry() {
+            if let Some(le) = frame.line_entry() {
                 let fs = le.file_spec();
                 if let Some(local_path) = self.map_filespec_to_local(&fs) {
                     stack_frame.line = le.line() as i64;
+                    stack_frame.end_line = Some(stack_frame.line);
                     stack_frame.column = le.column() as i64;
                     stack_frame.source = Some(Source {
                         name: Some(fs.filename().to_owned()),
