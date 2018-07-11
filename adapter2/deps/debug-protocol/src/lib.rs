@@ -8,10 +8,10 @@ extern crate serde_json;
 mod generated;
 
 pub use generated::{
-    AttachRequestArguments, Breakpoint, BreakpointEventBody, CompletionsArguments, CompletionsResponseBody,
-    ContinueArguments, ContinueResponseBody, ContinuedEventBody, DisconnectArguments, EvaluateArguments,
-    EvaluateResponseBody, ExitedEventBody, InitializeRequestArguments, ModuleEventBody, NextArguments, OutputEventBody,
-    PauseArguments, ScopesArguments, ScopesResponseBody, SetBreakpointsArguments, SetBreakpointsResponseBody,
+    Breakpoint, BreakpointEventBody, CompletionsArguments, CompletionsResponseBody, ContinueArguments,
+    ContinueResponseBody, ContinuedEventBody, DisconnectArguments, EvaluateArguments, EvaluateResponseBody,
+    ExitedEventBody, InitializeRequestArguments, ModuleEventBody, NextArguments, OutputEventBody, PauseArguments,
+    ScopesArguments, ScopesResponseBody, SetBreakpointsArguments, SetBreakpointsResponseBody,
     SetExceptionBreakpointsArguments, SetFunctionBreakpointsArguments, SetVariableArguments, SetVariableResponseBody,
     Source, SourceArguments, SourceBreakpoint, SourceResponseBody, StackFrame, StackTraceArguments,
     StackTraceResponseBody, StepBackArguments, StepInArguments, StepOutArguments, StoppedEventBody,
@@ -133,6 +133,14 @@ pub struct LaunchRequestArguments {
     #[serde(rename = "noDebug")]
     pub no_debug: Option<bool>,
     pub program: String,
+    #[serde(flatten)]
+    pub custom: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AttachRequestArguments {
+    #[serde(flatten)]
+    pub custom: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

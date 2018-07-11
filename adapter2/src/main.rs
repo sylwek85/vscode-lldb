@@ -15,6 +15,7 @@ extern crate my_lldb as lldb;
 extern crate log;
 extern crate bytes;
 extern crate env_logger;
+extern crate capturing_glob as glob;
 
 extern crate futures;
 extern crate tokio;

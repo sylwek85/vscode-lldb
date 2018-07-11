@@ -1,3 +1,4 @@
+use glob;
 use std;
 use std::boxed::FnBox;
 use std::cell::RefCell;
@@ -5,7 +6,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::mem;
 use std::option;
-use std::path::{self, Path};
+use std::path::{self, Component, Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -13,6 +14,7 @@ use std::thread;
 use futures::prelude::*;
 use futures::stream;
 use futures::sync::mpsc;
+use futures::sync::oneshot;
 use tokio;
 use tokio::prelude::*;
 use tokio_threadpool::blocking;
@@ -89,39 +91,49 @@ enum VarsScope {
 
 struct DebugSessionInner {
     send_message: mpsc::Sender<ProtocolMessage>,
+    stop: oneshot::Sender<()>(),
     event_listener: SBListener,
     debugger: MustInitialize<SBDebugger>,
     target: MustInitialize<SBTarget>,
     process: MustInitialize<SBProcess>,
+    process_launched: bool,
     on_configuration_done: Option<(u32, Box<AsyncResponder>)>,
     line_breakpoints: HashMap<FileId, HashMap<i64, BreakpointID>>,
     fn_breakpoints: HashMap<String, BreakpointID>,
     breakpoints: HashMap<BreakpointID, BreakpointInfo>,
     var_refs: HandleTree<VarsScope>,
+    source_map: MustInitialize<HashMap<glob::Pattern, String>>,
+    source_map_cache: HashMap<(String, String), Option<String>>,
 }
 
 pub struct DebugSession {
     inner: Arc<Mutex<DebugSessionInner>>,
     sender_in: mpsc::Sender<ProtocolMessage>,
     receiver_out: mpsc::Receiver<ProtocolMessage>,
+    receiver_stop: oneshot::Receiver<()>,
 }
 
 impl DebugSession {
     pub fn new() -> Self {
         let (sender_in, receiver_in) = mpsc::channel(10);
         let (sender_out, receiver_out) = mpsc::channel(10);
+        let (sender_stop, receiver_stop) = oneshot::channel();
 
         let inner = DebugSessionInner {
             send_message: sender_out,
+            stop: sender_stop,
             debugger: NotInitialized,
             target: NotInitialized,
             process: NotInitialized,
+            process_launched: false,
             event_listener: SBListener::new_with_name("DebugSession"),
             on_configuration_done: None,
             line_breakpoints: HashMap::new(),
             fn_breakpoints: HashMap::new(),
             breakpoints: HashMap::new(),
             var_refs: HandleTree::new(),
+            source_map: NotInitialized,
+            source_map_cache: HashMap::new(),
         };
         let inner = Arc::new(Mutex::new(inner));
 
@@ -159,6 +171,7 @@ impl DebugSession {
             inner,
             sender_in,
             receiver_out,
+            receiver_stop,
         }
     }
 }
@@ -175,6 +188,7 @@ impl Sink for DebugSession {
     type SinkItem = ProtocolMessage;
     type SinkError = ();
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+        self.receiver_stop.poll
         self.sender_in.start_send(item).map_err(|err| panic!("{:?}", err))
     }
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
@@ -239,6 +253,9 @@ impl DebugSessionInner {
             RequestArguments::stackTrace(args) => self // br
                 .handle_stack_trace(args)
                 .map(|r| ResponseBody::stackTrace(r)),
+            RequestArguments::disconnect(args) => self // br
+                .handle_disconnect(args)
+                .map(|_| ResponseBody::disconnect),
             _ => {
                 error!("No handler for request message: {:?}", request);
                 Err(Error::Internal("Not implemented.".into()))
@@ -390,6 +407,7 @@ impl DebugSessionInner {
         let mut launch_info = SBLaunchInfo::new();
         launch_info.set_listener(&self.event_listener);
         self.process = Initialized(self.target.launch(launch_info)?);
+        self.process_launched = true;
         Ok(ResponseBody::launch)
     }
 
@@ -446,7 +464,6 @@ impl DebugSessionInner {
                 let fs = le.file_spec();
                 if let Some(local_path) = self.map_filespec_to_local(&fs) {
                     stack_frame.line = le.line() as i64;
-                    stack_frame.end_line = Some(stack_frame.line);
                     stack_frame.column = le.column() as i64;
                     stack_frame.source = Some(Source {
                         name: Some(fs.filename().to_owned()),
@@ -462,6 +479,18 @@ impl DebugSessionInner {
             stack_frames: stack_frames,
             total_frames: Some(thread.num_frames() as i64),
         })
+    }
+
+    fn handle_disconnect(&mut self, args: DisconnectArguments) -> Result<(), Error> {
+        // TODO: exitCommands
+        let terminate = args.terminate_debuggee.unwrap_or(self.process_launched);
+        if terminate {
+            self.process.kill();
+        } else {
+            self.process.detach();
+        }
+        self.send_message.close();
+        Ok(())
     }
 
     fn handle_debug_event(&mut self, event: SBEvent) {
@@ -548,6 +577,82 @@ impl DebugSessionInner {
     }
 
     fn map_filespec_to_local(&mut self, filespec: &SBFileSpec) -> Option<String> {
-        Some(filespec.path())
+        if !filespec.is_valid() {
+            return None;
+        } else {
+            Some(normalize_path(&filespec.path()).into())
+        }
     }
+
+    // def map_filespec_to_local(self, filespec):
+    //     if not filespec.IsValid():
+    //         return None
+    //     key = (filespec.GetDirectory(), filespec.GetFilename())
+    //     local_path = self.filespec_cache.get(key, MISSING)
+    //     if local_path is MISSING:
+    //         local_path = self.map_filespec_to_local_uncached(filespec)
+    //         log.info('Mapped "%s" to "%s"', filespec, local_path)
+    //         if self.suppress_missing_sources and not os.path.isfile(local_path):
+    //             local_path = None
+    //         self.filespec_cache[key] = local_path
+    //     return local_path
+/*
+    fn map_filespec_to_local_uncached(&mut self, filespec: &SBFileSpec) -> Option<String> {
+        if !filespec.is_valid() {
+            return None
+        }
+        let normalized = normalize_path(filespec.path());
+        for (remote_prefix_glob, local_prefix) in self.source_map {
+            if let Some(result) = remote_prefix_glob.captures(normalized) {
+                return match local_prefix {
+                    Some(local_prefix) => normalize_path(local_prefix + result.groups(1).unwrap()),
+                    None => None
+                }
+            }
+        }
+    }
+*/
+    // def map_filespec_to_local_uncached(self, filespec):
+    //     if self.source_map is None:
+    //         self.make_source_map()
+    //     path = filespec.fullpath
+    //     if path is None:
+    //         return None
+    //     path = os.path.normpath(path)
+    //     path_normcased = os.path.normcase(path)
+    //     for remote_prefix_regex, local_prefix in self.source_map:
+    //         m = remote_prefix_regex.match(path_normcased)
+    //         if m:
+    //             if local_prefix is None: # User directed us to suppress source info.
+    //                 return None
+    //             # We want to preserve original path casing, however this assumes
+    //             # that os.path.normcase will not change the string length...
+    //             return os.path.normpath(local_prefix + path[len(m.group(1)):])
+    //     return path
+
+    // def make_source_map(self):
+    //     source_map = []
+    //     for remote_prefix, local_prefix in self.launch_args.get("sourceMap", {}).items():
+    //         regex = fnmatch.translate(remote_prefix)
+    //         assert regex.endswith('\\Z(?ms)')
+    //         regex = regex[:-7] # strip the above suffix
+    //         regex = re.compile('(' + regex + ').*', re.M | re.S)
+    //         source_map.append((regex, local_prefix))
+    //     self.source_map = source_map
+}
+
+fn normalize_path(path: &str) -> String {
+    let mut normalized = PathBuf::new();
+    for component in Path::new(path).components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => (),
+            Component::Normal(comp) => normalized.push(comp),
+            Component::CurDir => (),
+            Component::ParentDir => {
+                normalized.pop();
+            }
+        }
+    }
+    normalized.to_str().unwrap().into()
 }

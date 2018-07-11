@@ -555,6 +555,16 @@ impl SBProcess {
             None
         }
     }
+    pub fn kill(&self) -> SBError {
+        cpp!(unsafe [self as "SBProcess*"] -> SBError as "SBError" {
+            return self->Kill();
+        })
+    }
+    pub fn detach(&self) -> SBError {
+        cpp!(unsafe [self as "SBProcess*"] -> SBError as "SBError" {
+            return self->Detach();
+        })
+    }
 
     pub const eBroadcastBitStateChanged: u32 = 1;
     pub const eBroadcastBitInterrupt: u32 = 2;
