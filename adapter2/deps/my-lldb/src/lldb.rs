@@ -640,6 +640,31 @@ impl SBFrame {
             return self->IsValid();
         })
     }
+    pub fn function_name(&self) -> Option<&str> {
+        let ptr = cpp!(unsafe [self as "SBFrame*"] -> *const c_char as "const char*" {
+            return self->GetFunctionName();
+        });
+        if ptr.is_null() {
+            None
+        } else {
+            unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
+        }
+    }
+    pub fn display_function_name(&self) -> Option<&str> {
+        let ptr = cpp!(unsafe [self as "SBFrame*"] -> *const c_char as "const char*" {
+            return self->GetDisplayFunctionName();
+        });
+        if ptr.is_null() {
+            None
+        } else {
+            unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
+        }
+    }
+    pub fn pc_address(&self) -> SBAddress {
+        cpp!(unsafe [self as "SBFrame*"] -> SBAddress as "SBAddress" {
+            return self->GetPCAddress();
+        })
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -800,6 +825,20 @@ impl SBFileSpec {
             cpp!(unsafe [self as "SBFileSpec*", ptr as "char*", size as "size_t"] -> u32 as "uint32_t" {
                 return self->GetPath(ptr, size);
             }) as usize
+        })
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBValue as "SBValue");
+
+unsafe impl Send for SBValue {}
+
+impl SBValue {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBValue*"] -> bool as "bool" {
+            return self->IsValid();
         })
     }
 }

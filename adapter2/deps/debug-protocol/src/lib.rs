@@ -180,7 +180,7 @@ impl Default for Breakpoint {
 mod tests {
     use super::*;
     fn parse(s: &[u8]) {
-        let msg = serde_json::from_slice::<ProtocolMessage>(s).unwrap();
+        let _msg = serde_json::from_slice::<ProtocolMessage>(s).unwrap();
     }
 
     #[test]

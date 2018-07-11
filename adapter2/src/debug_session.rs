@@ -19,6 +19,7 @@ use tokio_threadpool::blocking;
 
 use debug_protocol::*;
 use failure;
+use handles::{Handle, HandleTree, VPath};
 use lldb::*;
 use must_initialize::{Initialized, MustInitialize, NotInitialized};
 
@@ -77,6 +78,15 @@ struct BreakpointInfo {
     ignore_count: u32,
 }
 
+enum VarsScope {
+    StackFrame(SBFrame),
+    Locals(SBFrame),
+    Statics(SBFrame),
+    Globals(SBFrame),
+    Registers(SBFrame),
+    Container(SBValue),
+}
+
 struct DebugSessionInner {
     send_message: mpsc::Sender<ProtocolMessage>,
     event_listener: SBListener,
@@ -87,6 +97,7 @@ struct DebugSessionInner {
     line_breakpoints: HashMap<FileId, HashMap<i64, BreakpointID>>,
     fn_breakpoints: HashMap<String, BreakpointID>,
     breakpoints: HashMap<BreakpointID, BreakpointInfo>,
+    var_refs: HandleTree<VarsScope>,
 }
 
 pub struct DebugSession {
@@ -110,6 +121,7 @@ impl DebugSession {
             line_breakpoints: HashMap::new(),
             fn_breakpoints: HashMap::new(),
             breakpoints: HashMap::new(),
+            var_refs: HandleTree::new(),
         };
         let inner = Arc::new(Mutex::new(inner));
 
@@ -416,6 +428,10 @@ impl DebugSessionInner {
             if !frame.is_valid() {
                 break;
             }
+            let mut stack_frame = StackFrame {
+                id: self.var_refs.create(None, "", VarsScope::StackFrame(frame.clone())).into(),
+                ..Default::default()
+            };
         }
         unimplemented!()
     }

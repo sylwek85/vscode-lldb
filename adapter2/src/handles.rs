@@ -46,7 +46,7 @@ impl<Value> HandleTree<Value> {
         }
     }
 
-    pub fn create_handle(&mut self, parent_handle: Option<Handle>, key: &str, value: Value) -> Handle {
+    pub fn create(&mut self, parent_handle: Option<Handle>, key: &str, value: Value) -> Handle {
         let new_vpath = match parent_handle {
             Some(parent_handle) => {
                 let (_, parent_vpath) = self.obj_by_handle.get(&parent_handle).unwrap();
@@ -75,4 +75,47 @@ impl<Value> HandleTree<Value> {
     pub fn get_with_vpath(&self, handle: Handle) -> Option<&(Value, VPath)> {
         self.obj_by_handle.get(&handle)
     }
+}
+
+#[test]
+fn test1() {
+    let mut handles = HandleTree::new();
+    let a1 = handles.create(None, "1", 0xa1);
+    let a2 = handles.create(None, "2", 0xa2);
+    let a11 = handles.create(Some(a1), "1.1", 0xa11);
+    let a12 = handles.create(Some(a1), "1.2", 0xa12);
+    let a121 = handles.create(Some(a12), "1.2.1", 0xa121);
+    let a21 = handles.create(Some(a2), "2.1", 0xa21);
+
+    assert!(handles.get(a1).unwrap() == &0xa1);
+    assert!(handles.get(a12).unwrap() == &0xa12);
+    assert!(handles.get(a121).unwrap() == &0xa121);
+
+    let mut handles2 = HandleTree::from_prev(handles);
+    let b1 = handles2.create(None, "1", 0xb1);
+    let b3 = handles2.create(None, "3", 0xb3);
+    let b11 = handles2.create(Some(b1), "1.1", 0xb11);
+    let b12 = handles2.create(Some(b1), "1.2", 0xb12);
+    let b13 = handles2.create(Some(b1), "1.3", 0xb13);
+    let b121 = handles2.create(Some(b12), "1.2.1", 0xb121);
+    let b122 = handles2.create(Some(b12), "1.2.2", 0xb122);
+
+    assert!(handles2.get(a2) == None);
+    assert!(handles2.get(a21) == None);
+
+    assert!(b1 == a1);
+    assert!(b11 == a11);
+    assert!(b12 == a12);
+    assert!(b121 == a121);
+
+    assert!(handles2.get(b1).unwrap() == &0xb1);
+    assert!(handles2.get(b122).unwrap() == &0xb122);
+}
+
+#[test]
+#[should_panic]
+fn test2() {
+    let mut handles = HandleTree::new();
+    let h1 = handles.create(None, "12345", 12345);
+    let h2 = handles.create(Some(Handle::new(h1.get() + 1).unwrap()), "12345", 12345);
 }

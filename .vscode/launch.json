@@ -32,6 +32,29 @@
 			"terminal": "integrated"
 		},
 		{
+			"name": "test codelldb2",
+			"preLaunchTask": "cargo build",
+			"type": "lldb",
+			"request": "launch",
+			"cargo":{
+				"args": [
+					"test",
+					"--no-run"
+				],
+				"filter": {
+					"name": "codelldb2"
+				}
+			},
+			"env": {
+				"PATH": "${env:PATH}:/usr/lib/llvm-6.0/bin",
+				"RUST_LOG": "debug"
+			},
+			"sourceLanguages": [
+				"cpp", "rust"
+			],
+			"terminal": "integrated"
+		},
+		{
 			"name": "attach to adapter",
 			"type": "python",
 			"request": "attach",
