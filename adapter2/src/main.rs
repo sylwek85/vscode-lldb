@@ -14,14 +14,16 @@ extern crate my_lldb as lldb;
 #[macro_use]
 extern crate log;
 extern crate bytes;
-extern crate env_logger;
 extern crate capturing_glob as glob;
+extern crate env_logger;
 
 extern crate futures;
 extern crate tokio;
 extern crate tokio_codec;
 extern crate tokio_io;
 extern crate tokio_threadpool;
+
+use std::mem;
 
 use futures::prelude::*;
 use tokio::prelude::*;
@@ -35,10 +37,11 @@ use tokio_threadpool::blocking;
 
 use lldb::*;
 
+mod cancellation;
 mod debug_session;
+mod handles;
 mod must_initialize;
 mod wire_protocol;
-mod handles;
 
 fn main() {
     env_logger::init();
@@ -50,23 +53,35 @@ fn main() {
 
     let server = listener
         .incoming()
+        .map_err(|err| {
+            error!("accept error: {:?}", err);
+            panic!()
+        })
         .take(1)
         .for_each(|conn| {
             conn.set_nodelay(true);
             let (to_client, from_client) = wire_protocol::Codec::new().framed(conn).split();
             let (to_session, from_session) = debug_session::DebugSession::new().split();
 
-            let client_to_session = from_client.map_err(|_| ()).forward(to_session);
-            let session_to_client = from_session.map_err(|err| io::Error::new(io::ErrorKind::Other, "hren")).forward(to_client);
+            let client_to_session = from_client
+                .map_err(|_| ())
+                .forward(to_session)
+                .map(|_| ())
+                .map_err(|err| error!("{:?}", err));
+            mem::forget(tokio::spawn(client_to_session));
 
-            session_to_client.map_err(|err| ()).join(client_to_session).then(|r| Ok(()))
-        })
-        .map_err(|err| {
-            error!("accept error: {:?}", err);
-            panic!()
+            let session_to_client = from_session
+                .map_err(|err| io::Error::new(io::ErrorKind::Other, "DebugSession error"))
+                .forward(to_client);
+
+            session_to_client
+                .map(|_| ())
+                .map_err(|err| panic!("DebugSession error {:?}", err))
         });
 
     tokio::run(server);
+
+    info!("Exited");
 
     SBDebugger::terminate();
 }

@@ -19,6 +19,7 @@ use tokio;
 use tokio::prelude::*;
 use tokio_threadpool::blocking;
 
+use cancellation::{CancellationSource, CancellationToken};
 use debug_protocol::*;
 use failure;
 use handles::{Handle, HandleTree, VPath};
@@ -43,7 +44,7 @@ impl From<option::NoneError> for Error {
 }
 impl From<SBError> for Error {
     fn from(sberr: SBError) -> Self {
-        Error::SBError(sberr.error_string().into())
+        Error::SBError(sberr.message().into())
     }
 }
 
@@ -91,7 +92,7 @@ enum VarsScope {
 
 struct DebugSessionInner {
     send_message: mpsc::Sender<ProtocolMessage>,
-    stop: oneshot::Sender<()>(),
+    shutdown: CancellationSource,
     event_listener: SBListener,
     debugger: MustInitialize<SBDebugger>,
     target: MustInitialize<SBTarget>,
@@ -110,18 +111,19 @@ pub struct DebugSession {
     inner: Arc<Mutex<DebugSessionInner>>,
     sender_in: mpsc::Sender<ProtocolMessage>,
     receiver_out: mpsc::Receiver<ProtocolMessage>,
-    receiver_stop: oneshot::Receiver<()>,
+    shutdown_token: CancellationToken,
 }
 
 impl DebugSession {
     pub fn new() -> Self {
         let (sender_in, receiver_in) = mpsc::channel(10);
         let (sender_out, receiver_out) = mpsc::channel(10);
-        let (sender_stop, receiver_stop) = oneshot::channel();
+        let shutdown = CancellationSource::new();
+        let shutdown_token = shutdown.cancellation_token();
 
         let inner = DebugSessionInner {
             send_message: sender_out,
-            stop: sender_stop,
+            shutdown: shutdown,
             debugger: NotInitialized,
             target: NotInitialized,
             process: NotInitialized,
@@ -171,7 +173,7 @@ impl DebugSession {
             inner,
             sender_in,
             receiver_out,
-            receiver_stop,
+            shutdown_token,
         }
     }
 }
@@ -180,7 +182,14 @@ impl Stream for DebugSession {
     type Item = ProtocolMessage;
     type Error = ();
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        self.receiver_out.poll()
+        match self.receiver_out.poll() {
+            Ok(Async::NotReady) if self.shutdown_token.is_cancelled() => {
+                info!("shutdown");
+                Ok(Async::Ready(None))
+            }
+            Ok(r) => Ok(r),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -188,11 +197,20 @@ impl Sink for DebugSession {
     type SinkItem = ProtocolMessage;
     type SinkError = ();
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        self.receiver_stop.poll
-        self.sender_in.start_send(item).map_err(|err| panic!("{:?}", err))
+        if self.shutdown_token.is_cancelled() {
+            error!("FOO");
+            Err(())
+        } else {
+            self.sender_in.start_send(item).map_err(|err| panic!("{:?}", err))
+        }
     }
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        self.sender_in.poll_complete().map_err(|err| panic!("{:?}", err))
+        if self.shutdown_token.is_cancelled() {
+            error!("BAR");
+            Err(())
+        } else {
+            self.sender_in.poll_complete().map_err(|err| panic!("{:?}", err))
+        }
     }
 }
 
@@ -253,6 +271,18 @@ impl DebugSessionInner {
             RequestArguments::stackTrace(args) => self // br
                 .handle_stack_trace(args)
                 .map(|r| ResponseBody::stackTrace(r)),
+            RequestArguments::continue_(args) => self // br
+                .handle_continue(args)
+                .map(|r| ResponseBody::continue_(r)),
+            RequestArguments::next(args) => self // br
+                .handle_next(args)
+                .map(|r| ResponseBody::next),
+            RequestArguments::stepIn(args) => self // br
+                .handle_step_in(args)
+                .map(|r| ResponseBody::stepIn),
+            RequestArguments::stepOut(args) => self // br
+                .handle_step_out(args)
+                .map(|r| ResponseBody::stepOut),
             RequestArguments::disconnect(args) => self // br
                 .handle_disconnect(args)
                 .map(|_| ResponseBody::disconnect),
@@ -481,6 +511,48 @@ impl DebugSessionInner {
         })
     }
 
+    fn handle_pause(&mut self, args: PauseArguments) -> Result<(), Error> {
+        let error = self.process.stop();
+        if error.success() {
+            Ok(())
+        } else {
+            Err(Error::UserError(error.message().into()))
+        }
+    }
+
+    fn handle_continue(&mut self, args: ContinueArguments) -> Result<ContinueResponseBody, Error> {
+        let error = self.process.resume();
+        if error.success() {
+            Ok(ContinueResponseBody {
+                all_threads_continued: Some(true),
+            })
+        } else {
+            Err(Error::UserError(error.message().into()))
+        }
+    }
+
+    fn handle_next(&mut self, args: NextArguments) -> Result<(), Error> {
+        self.before_resume();
+        let thread = self.process.thread_by_id(args.thread_id as ThreadID)?;
+        thread.step_over();
+            Ok(())
+
+    }
+
+    fn handle_step_in(&mut self, args: StepInArguments) -> Result<(), Error> {
+        self.before_resume();
+        let thread = self.process.thread_by_id(args.thread_id as ThreadID)?;
+        let error = thread.step_into();
+        Ok(())
+    }
+
+    fn handle_step_out(&mut self, args: StepOutArguments) -> Result<(), Error> {
+        self.before_resume();
+        let thread = self.process.thread_by_id(args.thread_id as ThreadID)?;
+        thread.step_out();
+        Ok(())
+    }
+
     fn handle_disconnect(&mut self, args: DisconnectArguments) -> Result<(), Error> {
         // TODO: exitCommands
         let terminate = args.terminate_debuggee.unwrap_or(self.process_launched);
@@ -489,8 +561,12 @@ impl DebugSessionInner {
         } else {
             self.process.detach();
         }
-        self.send_message.close();
+        self.shutdown.request_cancellation();
         Ok(())
+    }
+
+    fn before_resume(&mut self) {
+        self.var_refs.reset();
     }
 
     fn handle_debug_event(&mut self, event: SBEvent) {

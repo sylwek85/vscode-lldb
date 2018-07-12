@@ -189,10 +189,17 @@ impl SBError {
         })
     }
     pub fn success(&self) -> bool {
-        cpp!(unsafe [self as "SBError*"] -> bool as "bool" { return self->Success(); })
+        cpp!(unsafe [self as "SBError*"] -> bool as "bool" {
+            return self->Success();
+        })
     }
-    pub fn error_string(&self) -> &str {
-        let cs_ptr = cpp!(unsafe [self as "SBError*"] -> *const i8 as "const char*" {
+    pub fn fail(&self) -> bool {
+        cpp!(unsafe [self as "SBError*"] -> bool as "bool" {
+            return self->Fail();
+        })
+    }
+    pub fn message(&self) -> &str {
+        let cs_ptr = cpp!(unsafe [self as "SBError*"] -> *const c_char as "const char*" {
                 return self->GetCString();
             });
         match unsafe { CStr::from_ptr(cs_ptr) }.to_str() {
@@ -555,6 +562,16 @@ impl SBProcess {
             None
         }
     }
+    pub fn resume(&self) -> SBError {
+        cpp!(unsafe [self as "SBProcess*"] -> SBError as "SBError" {
+            return self->Continue();
+        })
+    }
+    pub fn stop(&self) -> SBError {
+        cpp!(unsafe [self as "SBProcess*"] -> SBError as "SBError" {
+            return self->Stop();
+        })
+    }
     pub fn kill(&self) -> SBError {
         cpp!(unsafe [self as "SBProcess*"] -> SBError as "SBError" {
             return self->Kill();
@@ -620,6 +637,21 @@ impl SBThread {
     }
     pub fn frames<'a>(&'a self) -> impl Iterator<Item = SBFrame> + 'a {
         SBIterator::new(self.num_frames(), move |index| self.frame_at_index(index))
+    }
+    pub fn step_over(&self)  {
+        cpp!(unsafe [self as "SBThread*"] {
+            return self->StepOver();
+        })
+    }
+    pub fn step_into(&self)  {
+        cpp!(unsafe [self as "SBThread*"] {
+            return self->StepInto();
+        })
+    }
+    pub fn step_out(&self)  {
+        cpp!(unsafe [self as "SBThread*"] {
+            return self->StepOut();
+        })
     }
 }
 

@@ -1,5 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::mem;
 use std::num::NonZeroU32;
 use std::rc::Rc;
 
@@ -34,16 +35,15 @@ impl<Value> HandleTree<Value> {
         }
     }
 
-    pub fn from_prev(mut old: HandleTree<Value>) -> Self {
-        old.obj_by_handle.clear();
-        old.prev_handle_by_vpath.clear();
-
-        HandleTree {
-            obj_by_handle: old.obj_by_handle,
-            handle_by_vpath: old.prev_handle_by_vpath,
-            prev_handle_by_vpath: old.handle_by_vpath,
-            next_handle_value: old.next_handle_value,
-        }
+    pub fn reset(&mut self) {
+        self.obj_by_handle.clear();
+        self.prev_handle_by_vpath.clear();
+        let HandleTree {
+            ref mut handle_by_vpath,
+            ref mut prev_handle_by_vpath,
+            ..
+        } = self;
+        mem::swap(handle_by_vpath, prev_handle_by_vpath);
     }
 
     pub fn create(&mut self, parent_handle: Option<Handle>, key: &str, value: Value) -> Handle {
