@@ -141,18 +141,24 @@ impl DebugSession {
 
         // Dispatch incoming requests to inner.handle_message()
         let inner2 = inner.clone();
-        let sink_to_inner = tokio::spawn(receiver_in.for_each(move |msg| {
-            inner2.lock().unwrap().handle_message(msg);
-            Ok(())
-        }));
-        mem::forget(sink_to_inner);
+        let sink_to_inner = receiver_in
+            .for_each(move |msg| {
+                inner2.lock().unwrap().handle_message(msg);
+                Ok(())
+            })
+            .then(|r| {
+                info!("### sink_to_inner resolved");
+                r
+            });
+        tokio::spawn(sink_to_inner);
 
         // Create a thread listening on inner's event_listener
         let (mut sender, mut receiver) = mpsc::channel(10);
         let listener = inner.lock().unwrap().event_listener.clone();
+        let token2 = shutdown_token.clone();
         thread::spawn(move || {
             let mut event = SBEvent::new();
-            while sender.poll_ready().is_ok() {
+            while sender.poll_ready().is_ok() && !token2.is_cancelled() {
                 if listener.wait_for_event(1, &mut event) {
                     if sender.try_send(event).is_err() {
                         break;
@@ -163,11 +169,16 @@ impl DebugSession {
         });
         // Dispatch incoming events to inner.handle_debug_event()
         let inner2 = inner.clone();
-        let event_listener_to_inner = tokio::spawn(receiver.for_each(move |event| {
-            inner2.lock().unwrap().handle_debug_event(event);
-            Ok(())
-        }));
-        mem::forget(event_listener_to_inner);
+        let event_listener_to_inner = receiver
+            .for_each(move |event| {
+                inner2.lock().unwrap().handle_debug_event(event);
+                Ok(())
+            })
+            .then(|r| {
+                info!("### event_listener_to_inner resolved");
+                r
+            });
+        tokio::spawn(event_listener_to_inner);
 
         DebugSession {
             inner,
@@ -184,7 +195,7 @@ impl Stream for DebugSession {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         match self.receiver_out.poll() {
             Ok(Async::NotReady) if self.shutdown_token.is_cancelled() => {
-                info!("shutdown");
+                error!("Stream::poll after shutdown");
                 Ok(Async::Ready(None))
             }
             Ok(r) => Ok(r),
@@ -198,7 +209,7 @@ impl Sink for DebugSession {
     type SinkError = ();
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
         if self.shutdown_token.is_cancelled() {
-            error!("FOO");
+            error!("Sink::start_send after shutdown");
             Err(())
         } else {
             self.sender_in.start_send(item).map_err(|err| panic!("{:?}", err))
@@ -206,7 +217,7 @@ impl Sink for DebugSession {
     }
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
         if self.shutdown_token.is_cancelled() {
-            error!("BAR");
+            error!("Sink::poll_complete after shutdown");
             Err(())
         } else {
             self.sender_in.poll_complete().map_err(|err| panic!("{:?}", err))
@@ -218,6 +229,18 @@ impl Sink for DebugSession {
 
 unsafe impl Send for DebugSession {}
 unsafe impl Send for DebugSessionInner {}
+
+impl Drop for DebugSession {
+    fn drop(&mut self) {
+        info!("### Dropping DebugSession");
+    }
+}
+
+impl Drop for DebugSessionInner {
+    fn drop(&mut self) {
+        info!("### Dropping DebugSessionInner");
+    }
+}
 
 impl DebugSessionInner {
     fn handle_message(&mut self, message: ProtocolMessage) {
@@ -271,6 +294,12 @@ impl DebugSessionInner {
             RequestArguments::stackTrace(args) => self // br
                 .handle_stack_trace(args)
                 .map(|r| ResponseBody::stackTrace(r)),
+            RequestArguments::scopes(args) => self // br
+                .handle_scopes(args)
+                .map(|r| ResponseBody::scopes(r)),
+            RequestArguments::variables(args) => self // br
+                .handle_variables(args)
+                .map(|r| ResponseBody::variables(r)),
             RequestArguments::continue_(args) => self // br
                 .handle_continue(args)
                 .map(|r| ResponseBody::continue_(r)),
@@ -511,6 +540,58 @@ impl DebugSessionInner {
         })
     }
 
+    fn handle_scopes(&mut self, args: ScopesArguments) -> Result<ScopesResponseBody, Error> {
+        let frame_id = Handle::new(args.frame_id as u32).unwrap();
+        if let Some(VarsScope::StackFrame(frame)) = self.var_refs.get(frame_id) {
+            let frame = frame.clone();
+            let locals_handle = self
+                .var_refs
+                .create(Some(frame_id), "[locs]", VarsScope::Locals(frame.clone()));
+            let locals = Scope {
+                name: "Local".into(),
+                variables_reference: locals_handle.get() as i64,
+                expensive: false,
+                ..Default::default()
+            };
+            let statics_handle = self
+                .var_refs
+                .create(Some(frame_id), "[stat]", VarsScope::Statics(frame.clone()));
+            let statics = Scope {
+                name: "Static".into(),
+                variables_reference: statics_handle.get() as i64,
+                expensive: false,
+                ..Default::default()
+            };
+            let globals_handle = self
+                .var_refs
+                .create(Some(frame_id), "[glob]", VarsScope::Globals(frame.clone()));
+            let globals = Scope {
+                name: "Global".into(),
+                variables_reference: globals_handle.get() as i64,
+                expensive: false,
+                ..Default::default()
+            };
+            let registers_handle = self
+                .var_refs
+                .create(Some(frame_id), "[regs]", VarsScope::Registers(frame));
+            let registers = Scope {
+                name: "Registers".into(),
+                variables_reference: registers_handle.get() as i64,
+                expensive: false,
+                ..Default::default()
+            };
+            Ok(ScopesResponseBody {
+                scopes: vec![locals, statics, globals, registers],
+            })
+        } else {
+            Err(Error::Internal(format!("Invalid frame reference: {}", args.frame_id)))
+        }
+    }
+
+    fn handle_variables(&mut self, args: VariablesArguments) -> Result<VariablesResponseBody, Error> {
+        Ok(VariablesResponseBody { variables: vec![] })
+    }
+
     fn handle_pause(&mut self, args: PauseArguments) -> Result<(), Error> {
         let error = self.process.stop();
         if error.success() {
@@ -535,8 +616,7 @@ impl DebugSessionInner {
         self.before_resume();
         let thread = self.process.thread_by_id(args.thread_id as ThreadID)?;
         thread.step_over();
-            Ok(())
-
+        Ok(())
     }
 
     fn handle_step_in(&mut self, args: StepInArguments) -> Result<(), Error> {

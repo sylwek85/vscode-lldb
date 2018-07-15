@@ -11,7 +11,7 @@ pub use generated::{
     Breakpoint, BreakpointEventBody, CompletionsArguments, CompletionsResponseBody, ContinueArguments,
     ContinueResponseBody, ContinuedEventBody, DisconnectArguments, EvaluateArguments, EvaluateResponseBody,
     ExitedEventBody, InitializeRequestArguments, ModuleEventBody, NextArguments, OutputEventBody, PauseArguments,
-    ScopesArguments, ScopesResponseBody, SetBreakpointsArguments, SetBreakpointsResponseBody,
+    Scope, ScopesArguments, ScopesResponseBody, SetBreakpointsArguments, SetBreakpointsResponseBody,
     SetExceptionBreakpointsArguments, SetFunctionBreakpointsArguments, SetVariableArguments, SetVariableResponseBody,
     Source, SourceArguments, SourceBreakpoint, SourceResponseBody, StackFrame, StackTraceArguments,
     StackTraceResponseBody, StepBackArguments, StepInArguments, StepOutArguments, StoppedEventBody,
@@ -194,6 +194,23 @@ impl Default for StackFrame {
             end_line: None,
             module_id: None,
             presentation_hint: None,
+        }
+    }
+}
+
+impl Default for Scope {
+    fn default() -> Self {
+        Scope {
+            column: None,
+            end_column: None,
+            end_line: None,
+            expensive: false,
+            indexed_variables: None,
+            line: None,
+            name: String::new(),
+            named_variables: None,
+            source: None,
+            variables_reference: 0,
         }
     }
 }

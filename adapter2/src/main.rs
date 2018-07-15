@@ -1,6 +1,7 @@
 #![allow(unused)]
 #![feature(try_trait)]
 #![feature(fnbox)]
+#![feature(nll)]
 
 #[macro_use]
 extern crate serde_derive;
@@ -66,18 +67,17 @@ fn main() {
             let client_to_session = from_client
                 .map_err(|_| ())
                 .forward(to_session)
-                .map(|_| ())
-                .map_err(|err| error!("{:?}", err));
-            mem::forget(tokio::spawn(client_to_session));
+                .then(|r| {info!("### client_to_session resolved"); Ok(())} );
+            tokio::spawn(client_to_session);
 
             let session_to_client = from_session
                 .map_err(|err| io::Error::new(io::ErrorKind::Other, "DebugSession error"))
-                .forward(to_client);
+                .forward(to_client)
+                .then(|r| {info!("### session_to_client resolved"); Ok(())});
 
             session_to_client
-                .map(|_| ())
-                .map_err(|err| panic!("DebugSession error {:?}", err))
-        });
+        })
+    .then(|r| {info!("### server resolved {:?}", r); Ok(()) });
 
     tokio::run(server);
 
