@@ -625,6 +625,16 @@ impl SBThread {
             })
         })
     }
+    pub fn stop_return_value(&self) -> Option<SBValue> {
+        let value = cpp!(unsafe [self as "SBThread*"] -> SBValue as "SBValue" {
+                return self->GetStopReturnValue();
+            });
+        if value.is_valid() {
+            Some(value)
+        } else {
+            None
+        }
+    }
     pub fn num_frames(&self) -> u32 {
         cpp!(unsafe [self as "SBThread*"] -> u32 as "uint32_t" {
             return self->GetNumFrames();
@@ -638,17 +648,17 @@ impl SBThread {
     pub fn frames<'a>(&'a self) -> impl Iterator<Item = SBFrame> + 'a {
         SBIterator::new(self.num_frames(), move |index| self.frame_at_index(index))
     }
-    pub fn step_over(&self)  {
+    pub fn step_over(&self) {
         cpp!(unsafe [self as "SBThread*"] {
             return self->StepOver();
         })
     }
-    pub fn step_into(&self)  {
+    pub fn step_into(&self) {
         cpp!(unsafe [self as "SBThread*"] {
             return self->StepInto();
         })
     }
-    pub fn step_out(&self)  {
+    pub fn step_out(&self) {
         cpp!(unsafe [self as "SBThread*"] {
             return self->StepOut();
         })
@@ -717,6 +727,46 @@ impl SBFrame {
             return self->GetPCAddress();
         })
     }
+    pub fn thread(&self) -> SBThread {
+        cpp!(unsafe [self as "SBFrame*"] -> SBThread as "SBThread" {
+            return self->GetThread();
+        })
+    }
+    pub fn variables(&self, options: &VariableOptions) -> SBValueList {
+        let VariableOptions {
+            arguments,
+            locals,
+            statics,
+            in_scope_only,
+            use_dynamic,
+        } = *options;
+        cpp!(unsafe [self as "SBFrame*", arguments as "bool", locals as "bool", statics as "bool",
+                     in_scope_only as "bool", use_dynamic as "uint32_t"] -> SBValueList as "SBValueList" {
+            return self->GetVariables(arguments, locals, statics, in_scope_only, (lldb::DynamicValueType)use_dynamic);
+        })
+    }
+    pub fn registers(&self) -> SBValueList {
+        cpp!(unsafe [self as "SBFrame*"] -> SBValueList as "SBValueList" {
+            return self->GetRegisters();
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct VariableOptions {
+    pub arguments: bool,
+    pub locals: bool,
+    pub statics: bool,
+    pub in_scope_only: bool,
+    pub use_dynamic: DynamicValueType,
+}
+
+#[derive(Clone, Copy)]
+#[repr(u32)]
+pub enum DynamicValueType {
+    NoDynamicValues = 0,
+    DynamicCanRunTarget = 1,
+    DynamicDontRunTarget = 2,
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -917,5 +967,81 @@ impl SBValue {
         cpp!(unsafe [self as "SBValue*"] -> bool as "bool" {
             return self->IsValid();
         })
+    }
+    pub fn name(&self) -> &str {
+        let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {
+            return self->GetName();
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+    pub fn type_name(&self) -> &str {
+        let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {
+            return self->GetTypeName();
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+    pub fn display_type_name(&self) -> &str {
+        let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {
+            return self->GetDisplayTypeName();
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+    pub fn num_children(&self) -> u32 {
+        cpp!(unsafe [self as "SBValue*"] -> u32 as "uint32_t" {
+            return self->GetNumChildren();
+        })
+    }
+    pub fn is_synthetic(&self) -> bool {
+        cpp!(unsafe [self as "SBValue*"] -> bool as "bool" {
+            return self->IsSynthetic();
+        })
+    }
+    pub fn value(&self) -> Option<&str> {
+        let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {
+            return self->GetValue();
+        });
+        if ptr.is_null() {
+            None
+        } else {
+            unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
+        }
+    }
+
+    pub fn summary(&self) -> Option<&str> {
+        let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {
+            return self->GetSummary();
+        });
+        if ptr.is_null() {
+            None
+        } else {
+            unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBValueList as "SBValueList");
+
+unsafe impl Send for SBValueList {}
+
+impl SBValueList {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBValueList*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
+    pub fn len(&self) -> usize {
+        cpp!(unsafe [self as "SBValueList*"] -> usize as "size_t" {
+            return self->GetSize();
+        })
+    }
+    pub fn value_at_index(&self, index: u32) -> SBValue {
+        cpp!(unsafe [self as "SBValueList*", index as "uint32_t"] -> SBValue as "SBValue" {
+            return self->GetValueAtIndex(index);
+        })
+    }
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = SBValue> + 'a {
+        SBIterator::new(self.len() as u32, move |index| self.value_at_index(index))
     }
 }

@@ -589,7 +589,78 @@ impl DebugSessionInner {
     }
 
     fn handle_variables(&mut self, args: VariablesArguments) -> Result<VariablesResponseBody, Error> {
-        Ok(VariablesResponseBody { variables: vec![] })
+        let container_handle = Handle::new(args.variables_reference as u32).unwrap();
+        if let Some((container, container_vpath)) = self.var_refs.get_with_vpath(container_handle) {
+            match container {
+                VarsScope::Locals(frame) => {
+                    let ret_val = frame.thread().stop_return_value();
+                    let variables = frame.variables(&VariableOptions {
+                        arguments: true,
+                        locals: true,
+                        statics: false,
+                        in_scope_only: true,
+                        use_dynamic: DynamicValueType::NoDynamicValues,
+                    });
+                    let mut vars_iter = ret_val.into_iter().chain(variables.iter());
+                    self.convert_scope_values(&mut vars_iter, container_handle);
+                }
+                VarsScope::Container(container) => {}
+                _ => {}
+            }
+            Ok(VariablesResponseBody { variables: vec![] })
+        } else {
+            Err(Error::Internal(format!(
+                "Invalid variabes reference: {}",
+                container_handle
+            )))
+        }
+    }
+
+    fn convert_scope_values(
+        &mut self, vars_iter: &mut Iterator<Item = SBValue>, container_handle: Option<Handle>,
+    ) -> Vec<Variable> {
+        for var in vars_iter {
+            let name = var.name().to_owned();
+            let dtype = var.type_name().to_owned();
+            let handle = self.get_var_handle(container_handle, &name, &var);
+            let value = self.get_var_value_str(&var, container_handle.is_some());
+        }
+        vec![]
+    }
+
+    // Generate a handle for a variable.
+    fn get_var_handle(&mut self, parent_handle: Option<Handle>, key: &str, var: &SBValue) -> Option<Handle> {
+        if var.num_children() > 0 || var.is_synthetic() {
+            Some(
+                self.var_refs
+                    .create(parent_handle, key, VarsScope::Container(var.clone())),
+            )
+        } else {
+            None
+        }
+    }
+
+    fn get_var_value_str(&self, var: &SBValue, is_container: bool) -> String {
+        let mut value = None;
+        // TODO: formats
+        // TODO: pointers
+        if value.is_none() {
+            value = var.value().map(|s| s.to_owned());
+            if value.is_none() {
+                value = var.summary().map(|s| s.to_owned());
+            }
+        }
+
+        if value.is_none() {
+            if is_container {
+                // TODO: Container summary
+                value = Some("{...}".to_owned());
+            } else {
+                value = Some("<not available>".to_owned());
+            }
+        }
+        // TODO: encoding
+        value
     }
 
     fn handle_pause(&mut self, args: PauseArguments) -> Result<(), Error> {

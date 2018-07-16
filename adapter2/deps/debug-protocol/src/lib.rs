@@ -15,7 +15,8 @@ pub use generated::{
     SetExceptionBreakpointsArguments, SetFunctionBreakpointsArguments, SetVariableArguments, SetVariableResponseBody,
     Source, SourceArguments, SourceBreakpoint, SourceResponseBody, StackFrame, StackTraceArguments,
     StackTraceResponseBody, StepBackArguments, StepInArguments, StepOutArguments, StoppedEventBody,
-    TerminatedEventBody, Thread, ThreadEventBody, ThreadsResponseBody, VariablesArguments, VariablesResponseBody,
+    TerminatedEventBody, Thread, ThreadEventBody, ThreadsResponseBody, Variable, VariablesArguments,
+    VariablesResponseBody,
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -211,6 +212,21 @@ impl Default for Scope {
             named_variables: None,
             source: None,
             variables_reference: 0,
+        }
+    }
+}
+
+impl Default for Variable {
+    fn default() -> Self {
+        Variable {
+            name: String::new(),
+            value: String::new(),
+            variables_reference: 0,
+            type_: None,
+            evaluate_name: None,
+            indexed_variables: None,
+            named_variables: None,
+            presentation_hint: None,
         }
     }
 }
