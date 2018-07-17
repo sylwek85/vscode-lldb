@@ -6,6 +6,17 @@ use std::rc::Rc;
 
 pub type Handle = NonZeroU32;
 
+pub fn to_i64(h: Option<Handle>) -> i64 {
+    match h {
+        None => 0,
+        Some(v) => v.get() as i64
+    }
+}
+
+pub fn from_i64(v: i64) -> Option<Handle> {
+    Handle::new(v as u32)
+}
+
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct VPath(Rc<(String, Option<VPath>)>);
 
@@ -91,25 +102,25 @@ fn test1() {
     assert!(handles.get(a12).unwrap() == &0xa12);
     assert!(handles.get(a121).unwrap() == &0xa121);
 
-    let mut handles2 = HandleTree::from_prev(handles);
-    let b1 = handles2.create(None, "1", 0xb1);
-    let b3 = handles2.create(None, "3", 0xb3);
-    let b11 = handles2.create(Some(b1), "1.1", 0xb11);
-    let b12 = handles2.create(Some(b1), "1.2", 0xb12);
-    let b13 = handles2.create(Some(b1), "1.3", 0xb13);
-    let b121 = handles2.create(Some(b12), "1.2.1", 0xb121);
-    let b122 = handles2.create(Some(b12), "1.2.2", 0xb122);
+    handles.reset();
+    let b1 = handles.create(None, "1", 0xb1);
+    let b3 = handles.create(None, "3", 0xb3);
+    let b11 = handles.create(Some(b1), "1.1", 0xb11);
+    let b12 = handles.create(Some(b1), "1.2", 0xb12);
+    let b13 = handles.create(Some(b1), "1.3", 0xb13);
+    let b121 = handles.create(Some(b12), "1.2.1", 0xb121);
+    let b122 = handles.create(Some(b12), "1.2.2", 0xb122);
 
-    assert!(handles2.get(a2) == None);
-    assert!(handles2.get(a21) == None);
+    assert!(handles.get(a2) == None);
+    assert!(handles.get(a21) == None);
 
     assert!(b1 == a1);
     assert!(b11 == a11);
     assert!(b12 == a12);
     assert!(b121 == a121);
 
-    assert!(handles2.get(b1).unwrap() == &0xb1);
-    assert!(handles2.get(b122).unwrap() == &0xb122);
+    assert!(handles.get(b1).unwrap() == &0xb1);
+    assert!(handles.get(b122).unwrap() == &0xb122);
 }
 
 #[test]

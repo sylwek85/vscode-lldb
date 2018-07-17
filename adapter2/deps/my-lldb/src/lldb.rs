@@ -373,6 +373,7 @@ impl<'a> SBProcessEvent<'a> {
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 #[repr(u32)]
 pub enum ProcessState {
     Invalid = 0,
@@ -665,6 +666,7 @@ impl SBThread {
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 #[repr(u32)]
 pub enum StopReason {
     Invalid = 0,
@@ -761,7 +763,7 @@ pub struct VariableOptions {
     pub use_dynamic: DynamicValueType,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 #[repr(u32)]
 pub enum DynamicValueType {
     NoDynamicValues = 0,
@@ -968,32 +970,44 @@ impl SBValue {
             return self->IsValid();
         })
     }
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> Option<&str> {
         let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {
             return self->GetName();
         });
-        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+        if ptr.is_null() {
+            None
+        } else {
+            unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
+        }
     }
-    pub fn type_name(&self) -> &str {
+    pub fn type_name(&self) -> Option<&str> {
         let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {
             return self->GetTypeName();
         });
-        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+        if ptr.is_null() {
+            None
+        } else {
+            unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
+        }
     }
-    pub fn display_type_name(&self) -> &str {
+    pub fn display_type_name(&self) -> Option<&str> {
         let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {
             return self->GetDisplayTypeName();
         });
-        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
-    }
-    pub fn num_children(&self) -> u32 {
-        cpp!(unsafe [self as "SBValue*"] -> u32 as "uint32_t" {
-            return self->GetNumChildren();
-        })
+        if ptr.is_null() {
+            None
+        } else {
+            unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
+        }
     }
     pub fn is_synthetic(&self) -> bool {
         cpp!(unsafe [self as "SBValue*"] -> bool as "bool" {
             return self->IsSynthetic();
+        })
+    }
+    pub fn value_type(&self) -> ValueType {
+        cpp!(unsafe [self as "SBValue*"] -> ValueType as "uint32_t" {
+            return self->GetValueType();
         })
     }
     pub fn value(&self) -> Option<&str> {
@@ -1006,7 +1020,6 @@ impl SBValue {
             unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
         }
     }
-
     pub fn summary(&self) -> Option<&str> {
         let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {
             return self->GetSummary();
@@ -1017,6 +1030,33 @@ impl SBValue {
             unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
         }
     }
+    pub fn num_children(&self) -> u32 {
+        cpp!(unsafe [self as "SBValue*"] -> u32 as "uint32_t" {
+            return self->GetNumChildren();
+        })
+    }
+    pub fn child_at_index(&self, index: u32) -> SBValue {
+        cpp!(unsafe [self as "SBValue*", index as "uint32_t"] -> SBValue as "SBValue" {
+            return self->GetChildAtIndex(index);
+        })
+    }
+    pub fn children<'a>(&'a self) -> impl Iterator<Item = SBValue> + 'a {
+        SBIterator::new(self.num_children(), move |index| self.child_at_index(index))
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+#[repr(u32)]
+pub enum ValueType {
+    Invalid = 0,
+    VariableGlobal = 1,      // globals variable
+    VariableStatic = 2,      // static variable
+    VariableArgument = 3,    // function argument variables
+    VariableLocal = 4,       // function local variables
+    Register = 5,            // stack frame register value
+    RegisterSet = 6,         // A collection of stack frame register values
+    ConstResult = 7,         // constant result variables
+    VariableThreadLocal = 8, // thread local storage variable
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////

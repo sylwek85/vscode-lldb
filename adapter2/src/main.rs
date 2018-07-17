@@ -1,4 +1,5 @@
 #![allow(unused)]
+
 #![feature(try_trait)]
 #![feature(fnbox)]
 #![feature(nll)]

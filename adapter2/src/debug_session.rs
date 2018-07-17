@@ -22,7 +22,7 @@ use tokio_threadpool::blocking;
 use cancellation::{CancellationSource, CancellationToken};
 use debug_protocol::*;
 use failure;
-use handles::{Handle, HandleTree, VPath};
+use handles::{self, Handle, HandleTree, VPath};
 use lldb::*;
 use must_initialize::{Initialized, MustInitialize, NotInitialized};
 
@@ -591,7 +591,7 @@ impl DebugSessionInner {
     fn handle_variables(&mut self, args: VariablesArguments) -> Result<VariablesResponseBody, Error> {
         let container_handle = Handle::new(args.variables_reference as u32).unwrap();
         if let Some((container, container_vpath)) = self.var_refs.get_with_vpath(container_handle) {
-            match container {
+            let variables = match container {
                 VarsScope::Locals(frame) => {
                     let ret_val = frame.thread().stop_return_value();
                     let variables = frame.variables(&VariableOptions {
@@ -602,12 +602,43 @@ impl DebugSessionInner {
                         use_dynamic: DynamicValueType::NoDynamicValues,
                     });
                     let mut vars_iter = ret_val.into_iter().chain(variables.iter());
-                    self.convert_scope_values(&mut vars_iter, container_handle);
+                    self.convert_scope_values(&mut vars_iter, Some(container_handle))
                 }
-                VarsScope::Container(container) => {}
-                _ => {}
-            }
-            Ok(VariablesResponseBody { variables: vec![] })
+                VarsScope::Statics(frame) => {
+                    let variables = frame.variables(&VariableOptions {
+                        arguments: false,
+                        locals: false,
+                        statics: true,
+                        in_scope_only: true,
+                        use_dynamic: DynamicValueType::NoDynamicValues,
+                    });
+                    let mut vars_iter = variables.iter().filter(|v| v.value_type() != ValueType::VariableStatic);
+                    self.convert_scope_values(&mut vars_iter, Some(container_handle))
+                }
+                VarsScope::Globals(frame) => {
+                    let variables = frame.variables(&VariableOptions {
+                        arguments: false,
+                        locals: false,
+                        statics: true,
+                        in_scope_only: true,
+                        use_dynamic: DynamicValueType::NoDynamicValues,
+                    });
+                    let mut vars_iter = variables.iter();//.filter(|v| v.value_type() != ValueType::VariableGlobal);
+                    self.convert_scope_values(&mut vars_iter, Some(container_handle))
+                }
+                VarsScope::Registers(frame) => {
+                    let list = frame.registers();
+                    let mut vars_iter = list.iter();
+                    self.convert_scope_values(&mut vars_iter, Some(container_handle))
+                }
+                VarsScope::Container(v) => {
+                    let v = v.clone();
+                    let mut vars_iter = v.children();
+                    self.convert_scope_values(&mut vars_iter, Some(container_handle))
+                }
+                _ => vec![],
+            };
+            Ok(VariablesResponseBody { variables: variables })
         } else {
             Err(Error::Internal(format!(
                 "Invalid variabes reference: {}",
@@ -619,13 +650,24 @@ impl DebugSessionInner {
     fn convert_scope_values(
         &mut self, vars_iter: &mut Iterator<Item = SBValue>, container_handle: Option<Handle>,
     ) -> Vec<Variable> {
+        let mut variables = vec![];
         for var in vars_iter {
-            let name = var.name().to_owned();
-            let dtype = var.type_name().to_owned();
-            let handle = self.get_var_handle(container_handle, &name, &var);
-            let value = self.get_var_value_str(&var, container_handle.is_some());
+            if let Some(name) = var.name() {
+                let dtype = var.type_name();
+                let handle = self.get_var_handle(container_handle, name, &var);
+                let value = self.get_var_value_str(&var, container_handle.is_some());
+                variables.push(Variable {
+                    name: name.to_owned(),
+                    value: value,
+                    type_: dtype.map(|v| v.to_owned()),
+                    variables_reference: handles::to_i64(handle),
+                    ..Default::default()
+                });
+            } else {
+                error!("Dropped value {:?} {}", var.type_name(), self.get_var_value_str(&var, false));
+            }
         }
-        vec![]
+        variables
     }
 
     // Generate a handle for a variable.
@@ -640,6 +682,7 @@ impl DebugSessionInner {
         }
     }
 
+    // Get a displayable string from a SBValue
     fn get_var_value_str(&self, var: &SBValue, is_container: bool) -> String {
         let mut value = None;
         // TODO: formats
@@ -651,16 +694,19 @@ impl DebugSessionInner {
             }
         }
 
-        if value.is_none() {
-            if is_container {
-                // TODO: Container summary
-                value = Some("{...}".to_owned());
-            } else {
-                value = Some("<not available>".to_owned());
+        let value_str = match value {
+            Some(value) => value,
+            None => {
+                if is_container {
+                    // TODO: Container summary
+                    "{...}".to_owned()
+                } else {
+                    "<not available>".to_owned()
+                }
             }
-        }
+        };
         // TODO: encoding
-        value
+        value_str
     }
 
     fn handle_pause(&mut self, args: PauseArguments) -> Result<(), Error> {
