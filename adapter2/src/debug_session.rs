@@ -1,4 +1,6 @@
 use glob;
+use serde_json;
+
 use std;
 use std::boxed::FnBox;
 use std::cell::RefCell;
@@ -23,6 +25,7 @@ use cancellation::{CancellationSource, CancellationToken};
 use debug_protocol::*;
 use failure;
 use handles::{self, Handle, HandleTree, VPath};
+use launch_config::*;
 use lldb::*;
 use must_initialize::{Initialized, MustInitialize, NotInitialized};
 
@@ -464,13 +467,26 @@ impl DebugSessionInner {
 
     fn complete_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody, Error> {
         let mut launch_info = SBLaunchInfo::new();
-        // if let Some(args) = args.custom.find("args") {
-        //     let args_strs = match args {
-        //         serde_json::Value::Array(v) => v.iter(),
-        //         _ => return Error::UserError("args must be a list of strings");
-        //     };
-        //     launch_info.set_arguments(&args_strs, false);
-        // }
+        match serde_json::from_value::<LaunchConfig>(serde_json::Value::Object(args.custom)) {
+            Err(err) => {
+                return Err(Error::UserError(format!("{}", err)));
+            }
+            Ok(launch_config) => {
+                if let Some(args) = launch_config.args {
+                    launch_info.set_arguments(args.iter().map(|a| a.as_ref()), false);
+                }
+                if let Some(env) = launch_config.env {
+                    let env: Vec<String> = env.iter().map(|(k,v)| format!("{}={}", k, v)).collect();
+                    launch_info.set_environment_entries(env.iter().map(|s| s.as_ref()), true);
+                }
+                if let Some(cwd) = launch_config.cwd {
+                    launch_info.set_working_directory(&cwd);
+                }
+                if let Some(stop_on_entry) = launch_config.stop_on_entry {
+                    launch_info.set_launch_flags(launch_info.launch_flags() | SBLaunchInfo::eLaunchFlagStopAtEntry);
+                }
+            }
+        }
         launch_info.set_listener(&self.event_listener);
         self.process = Initialized(self.target.launch(launch_info)?);
         self.process_launched = true;
@@ -630,7 +646,7 @@ impl DebugSessionInner {
                         in_scope_only: true,
                         use_dynamic: DynamicValueType::NoDynamicValues,
                     });
-                    let mut vars_iter = variables.iter();//.filter(|v| v.value_type() != ValueType::VariableGlobal);
+                    let mut vars_iter = variables.iter(); //.filter(|v| v.value_type() != ValueType::VariableGlobal);
                     self.convert_scope_values(&mut vars_iter, Some(container_handle))
                 }
                 VarsScope::Registers(frame) => {
@@ -671,7 +687,11 @@ impl DebugSessionInner {
                     ..Default::default()
                 });
             } else {
-                error!("Dropped value {:?} {}", var.type_name(), self.get_var_value_str(&var, false));
+                error!(
+                    "Dropped value {:?} {}",
+                    var.type_name(),
+                    self.get_var_value_str(&var, false)
+                );
             }
         }
         variables
@@ -695,9 +715,9 @@ impl DebugSessionInner {
         // TODO: formats
         // TODO: pointers
         if value.is_none() {
-            value = var.value().map(|s| s.to_owned());
+            value = var.value().map(|s| s.to_string_lossy().into_owned());
             if value.is_none() {
-                value = var.summary().map(|s| s.to_owned());
+                value = var.summary().map(|s| s.to_string_lossy().into_owned());
             }
         }
 

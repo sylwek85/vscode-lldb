@@ -264,14 +264,65 @@ impl SBLaunchInfo {
             self->SetListener(*listener);
         })
     }
-    pub fn set_arguments<'a>(&self, args: impl IntoIterator<Item=&'a str>, append: bool) {
+    pub fn set_arguments<'a>(&self, args: impl IntoIterator<Item = &'a str>, append: bool) {
         let cstrs: Vec<CString> = args.into_iter().map(|a| CString::new(a).unwrap()).collect();
-        let ptrs: Vec<*const c_char> = cstrs.iter().map(|cs| cs.as_ptr()).collect();
+        let mut ptrs: Vec<*const c_char> = cstrs.iter().map(|cs| cs.as_ptr()).collect();
+        ptrs.push(ptr::null());
         let argv = ptrs.as_ptr();
         cpp!(unsafe [self as "SBLaunchInfo*", argv as "const char**", append as "bool"] {
             self->SetArguments(argv, append);
         });
     }
+    pub fn set_environment_entries<'a>(&self, env: impl IntoIterator<Item = &'a str>, append: bool) {
+        let cstrs: Vec<CString> = env.into_iter().map(|a| CString::new(a).unwrap()).collect();
+        let mut ptrs: Vec<*const c_char> = cstrs.iter().map(|cs| cs.as_ptr()).collect();
+        ptrs.push(ptr::null());
+        let envp = ptrs.as_ptr();
+        cpp!(unsafe [self as "SBLaunchInfo*", envp as "const char**", append as "bool"] {
+            self->SetEnvironmentEntries(envp, append);
+        });
+    }
+    pub fn set_working_directory(&self, cwd: &str) {
+        with_cstr(cwd, |cwd| {
+            cpp!(unsafe [self as "SBLaunchInfo*", cwd as "const char*"] {
+                self->SetWorkingDirectory(cwd);
+            });
+        })
+    }
+    pub fn set_launch_flags(&self, flags: u32) {
+        cpp!(unsafe [self as "SBLaunchInfo*", flags as "uint32_t"] {
+            self->SetLaunchFlags(flags);
+        })
+    }
+    pub fn launch_flags(&self) -> u32 {
+        cpp!(unsafe [self as "SBLaunchInfo*"] -> u32 as "uint32_t" {
+            return self->GetLaunchFlags();
+        })
+    }
+
+    pub const eLaunchFlagNone: u32 = 0;
+    pub const eLaunchFlagExec: u32 = (1 << 0); // Exec when launching and turn the calling
+                                               // process into a new process
+    pub const eLaunchFlagDebug: u32 = (1 << 1); // Stop as soon as the process launches to
+                                                // allow the process to be debugged
+    pub const eLaunchFlagStopAtEntry: u32 = (1 << 2); // Stop at the program entry point
+                                                      // instead of auto-continuing when
+                                                      // launching or attaching at entry point
+    pub const eLaunchFlagDisableASLR: u32 = (1 << 3); // Disable Address Space Layout Randomization
+    pub const eLaunchFlagDisableSTDIO: u32 = (1 << 4); // Disable stdio for inferior process (e.g. for a GUI app)
+    pub const eLaunchFlagLaunchInTTY: u32 = (1 << 5); // Launch the process in a new TTY if supported by the host
+    pub const eLaunchFlagLaunchInShell: u32 = (1 << 6); // Launch the process inside a shell to get shell expansion
+    pub const eLaunchFlagLaunchInSeparateProcessGroup: u32 = (1 << 7); // Launch the process in a separate process group
+    pub const eLaunchFlagDontSetExitStatus: u32 = (1 << 8); // If you are going to hand the
+                                                            // process off (e.g. to
+                                                            // debugserver)
+                                                            // set this flag so lldb & the handee don't race to set its exit status.
+    pub const eLaunchFlagDetachOnError: u32 = (1 << 9); // If set, then the client stub
+                                                        // should detach rather than killing
+                                                        // the debugee
+                                                        // if it loses connection with lldb.
+    pub const eLaunchFlagShellExpandArguments: u32 = (1 << 10); // Perform shell-style argument expansion
+    pub const eLaunchFlagCloseTTYOnExit: u32 = (1 << 11); // Close the open TTY on exit
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1018,24 +1069,24 @@ impl SBValue {
             return self->GetValueType();
         })
     }
-    pub fn value(&self) -> Option<&str> {
+    pub fn value(&self) -> Option<&CStr> {
         let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {
             return self->GetValue();
         });
         if ptr.is_null() {
             None
         } else {
-            unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
+            unsafe { Some(CStr::from_ptr(ptr)) }
         }
     }
-    pub fn summary(&self) -> Option<&str> {
+    pub fn summary(&self) -> Option<&CStr> {
         let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {
             return self->GetSummary();
         });
         if ptr.is_null() {
             None
         } else {
-            unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
+            unsafe { Some(CStr::from_ptr(ptr)) }
         }
     }
     pub fn num_children(&self) -> u32 {

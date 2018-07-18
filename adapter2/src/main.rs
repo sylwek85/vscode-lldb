@@ -44,6 +44,7 @@ mod debug_session;
 mod handles;
 mod must_initialize;
 mod wire_protocol;
+mod launch_config;
 
 fn main() {
     env_logger::init();
