@@ -12,7 +12,7 @@ extern crate serde_json;
 extern crate failure_derive;
 extern crate debug_protocol;
 extern crate failure;
-extern crate my_lldb as lldb;
+extern crate lldb;
 #[macro_use]
 extern crate log;
 extern crate bytes;
