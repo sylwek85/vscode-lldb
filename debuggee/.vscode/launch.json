@@ -12,7 +12,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "DebugServer",
+            "name": "CodeLLDB2",
             "program": "${workspaceFolder}/../out/debuggee/debuggee",
             "args": ["vars"],
             "cwd": "${workspaceFolder}",
