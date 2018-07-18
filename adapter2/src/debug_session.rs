@@ -464,6 +464,13 @@ impl DebugSessionInner {
 
     fn complete_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody, Error> {
         let mut launch_info = SBLaunchInfo::new();
+        // if let Some(args) = args.custom.find("args") {
+        //     let args_strs = match args {
+        //         serde_json::Value::Array(v) => v.iter(),
+        //         _ => return Error::UserError("args must be a list of strings");
+        //     };
+        //     launch_info.set_arguments(&args_strs, false);
+        // }
         launch_info.set_listener(&self.event_listener);
         self.process = Initialized(self.target.launch(launch_info)?);
         self.process_launched = true;

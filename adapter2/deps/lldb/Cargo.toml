@@ -1,5 +1,5 @@
 [package]
-name = "my-lldb"
+name = "lldb"
 version = "0.1.0"
 
 [lib]

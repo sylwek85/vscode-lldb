@@ -264,6 +264,14 @@ impl SBLaunchInfo {
             self->SetListener(*listener);
         })
     }
+    pub fn set_arguments<'a>(&self, args: impl IntoIterator<Item=&'a str>, append: bool) {
+        let cstrs: Vec<CString> = args.into_iter().map(|a| CString::new(a).unwrap()).collect();
+        let ptrs: Vec<*const c_char> = cstrs.iter().map(|cs| cs.as_ptr()).collect();
+        let argv = ptrs.as_ptr();
+        cpp!(unsafe [self as "SBLaunchInfo*", argv as "const char**", append as "bool"] {
+            self->SetArguments(argv, append);
+        });
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////

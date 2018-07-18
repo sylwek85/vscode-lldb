@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Vadim Chugunov <vadimcn@gmail.com>"]
 
 [dependencies]
-lldb = "0.0.7"
 debug-protocol = { path = "deps/debug-protocol" }
 serde = "1.0.66"
 serde_derive = "1.0.66"
