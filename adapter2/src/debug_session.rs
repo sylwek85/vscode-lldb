@@ -24,33 +24,12 @@ use tokio_threadpool::blocking;
 
 use cancellation::{CancellationSource, CancellationToken};
 use debug_protocol::*;
-use failure;
 use handles::{self, Handle, HandleTree, VPath};
 use launch_config::*;
 use lldb::*;
 use must_initialize::{Initialized, MustInitialize, NotInitialized};
-
-#[derive(Fail, Debug)]
-enum Error {
-    #[fail(display = "Whoops! Something that was supposed to have been initialized, wasn't.")]
-    NotInitialized,
-    #[fail(display = "{}", _0)]
-    SBError(String),
-    #[fail(display = "{}", _0)]
-    Internal(String),
-    #[fail(display = "{}", _0)]
-    UserError(String),
-}
-impl From<option::NoneError> for Error {
-    fn from(_: option::NoneError) -> Self {
-        Error::NotInitialized
-    }
-}
-impl From<SBError> for Error {
-    fn from(sberr: SBError) -> Self {
-        Error::SBError(sberr.message().into())
-    }
-}
+use error::Error;
+use source_map;
 
 type AsyncResponder = FnBox(&mut DebugSessionInner) -> Result<ResponseBody, Error>;
 
@@ -107,7 +86,7 @@ struct DebugSessionInner {
     fn_breakpoints: HashMap<String, BreakpointID>,
     breakpoints: HashMap<BreakpointID, BreakpointInfo>,
     var_refs: HandleTree<VarsScope>,
-    source_map: MustInitialize<Vec<(regex::Regex, Option<String>)>>,
+    source_map: MustInitialize<source_map::SourceMap>,
     source_map_cache: HashMap<(String, String), Option<String>>,
 }
 
@@ -487,7 +466,7 @@ impl DebugSessionInner {
                     launch_info.set_launch_flags(launch_info.launch_flags() | SBLaunchInfo::eLaunchFlagStopAtEntry);
                 }
                 if let Some(source_map) = launch_config.source_map {
-                    self.source_map = Initialized(build_source_map(&source_map)?);
+                    self.source_map = Initialized(source_map::SourceMap::new(&source_map)?);
                 }
             }
         }
@@ -884,78 +863,8 @@ impl DebugSessionInner {
         if !filespec.is_valid() {
             return None;
         } else {
-            Some(normalize_path(&filespec.path()).into())
+            Some(source_map::normalize_path(&filespec.path()).into())
         }
-    }
-
-    // def map_filespec_to_local(self, filespec):
-    //     if not filespec.IsValid():
-    //         return None
-    //     key = (filespec.GetDirectory(), filespec.GetFilename())
-    //     local_path = self.filespec_cache.get(key, MISSING)
-    //     if local_path is MISSING:
-    //         local_path = self.map_filespec_to_local_uncached(filespec)
-    //         log.info('Mapped "%s" to "%s"', filespec, local_path)
-    //         if self.suppress_missing_sources and not os.path.isfile(local_path):
-    //             local_path = None
-    //         self.filespec_cache[key] = local_path
-    //     return local_path
-
-    fn map_filespec_to_local_uncached(&mut self, filespec: &SBFileSpec) -> Option<String> {
-        if !filespec.is_valid() {
-            return None;
-        }
-        let normalized = normalize_path(&filespec.path());
-        for (remote_prefix, local_prefix) in self.source_map.iter() {
-            if let Some(captures) = remote_prefix.captures(&normalized) {
-                return match local_prefix {
-                    Some(prefix) => {
-                        let match_len = captures.get(1).unwrap().start();
-                        let result = normalize_path(&format!("{}{}", prefix, &normalized[match_len..]));
-                        Some(result)
-                    }
-                    None => None,
-                };
-            }
-        }
-        unimplemented!()
     }
 }
 
-fn normalize_path(path: &str) -> String {
-    let mut normalized = PathBuf::new();
-    for component in Path::new(path).components() {
-        match component {
-            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
-            Component::RootDir => (),
-            Component::Normal(comp) => normalized.push(comp),
-            Component::CurDir => (),
-            Component::ParentDir => {
-                normalized.pop();
-            }
-        }
-    }
-    normalized.to_str().unwrap().into()
-}
-
-fn build_source_map(
-    source_map: &HashMap<String, Option<String>>,
-) -> Result<Vec<(regex::Regex, Option<String>)>, Error> {
-    let mut compiled_source_map = vec![];
-    for (remote, local) in source_map {
-        let glob = match globset::Glob::new(remote) {
-            Ok(glob) => glob,
-            Err(err) => return Err(Error::UserError(format!("Invalid glob pattern: {}", remote))),
-        };
-        let regex = regex::Regex::new(&format!("({}).*", glob.regex())).unwrap(); // TODO: use ?
-        compiled_source_map.push((regex, local.clone()));
-    }
-    Ok(compiled_source_map)
-}
-
-#[test]
-fn test_source_map() {
-    let mut source_map = HashMap::new();
-    source_map.insert("/foo/bar/*".to_owned(), Some("/hren".to_owned()));
-    let compiled_source_map = build_source_map(&source_map);
-}

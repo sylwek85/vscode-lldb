@@ -61,12 +61,12 @@
       "label": "cargo test",
       "command": "cargo",
       "args": [
-        "test"
+        "test", "-p", "codelldb2"
       ],
       "problemMatcher": [
         "$rustc"
       ],
-      "group": "test"
+      "group": "build"
     },
     {
       "type": "shell",

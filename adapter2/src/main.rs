@@ -1,5 +1,4 @@
 #![allow(unused)]
-
 #![feature(try_trait)]
 #![feature(fnbox)]
 #![feature(nll)]
@@ -17,8 +16,8 @@ extern crate lldb;
 extern crate log;
 extern crate bytes;
 extern crate env_logger;
-extern crate regex;
 extern crate globset;
+extern crate regex;
 
 extern crate futures;
 extern crate tokio;
@@ -42,10 +41,12 @@ use lldb::*;
 
 mod cancellation;
 mod debug_session;
+mod error;
 mod handles;
-mod must_initialize;
-mod wire_protocol;
 mod launch_config;
+mod must_initialize;
+mod source_map;
+mod wire_protocol;
 
 fn main() {
     env_logger::init();
@@ -67,20 +68,26 @@ fn main() {
             let (to_client, from_client) = wire_protocol::Codec::new().framed(conn).split();
             let (to_session, from_session) = debug_session::DebugSession::new().split();
 
-            let client_to_session = from_client
-                .map_err(|_| ())
-                .forward(to_session)
-                .then(|r| {info!("### client_to_session resolved"); Ok(())} );
+            let client_to_session = from_client.map_err(|_| ()).forward(to_session).then(|r| {
+                info!("### client_to_session resolved");
+                Ok(())
+            });
             tokio::spawn(client_to_session);
 
             let session_to_client = from_session
                 .map_err(|err| io::Error::new(io::ErrorKind::Other, "DebugSession error"))
                 .forward(to_client)
-                .then(|r| {info!("### session_to_client resolved"); Ok(())});
+                .then(|r| {
+                    info!("### session_to_client resolved");
+                    Ok(())
+                });
 
             session_to_client
         })
-    .then(|r| {info!("### server resolved {:?}", r); Ok(()) });
+        .then(|r| {
+            info!("### server resolved {:?}", r);
+            Ok(())
+        });
 
     tokio::run(server);
 
