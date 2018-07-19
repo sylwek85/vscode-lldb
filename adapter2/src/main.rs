@@ -16,8 +16,9 @@ extern crate lldb;
 #[macro_use]
 extern crate log;
 extern crate bytes;
-extern crate capturing_glob as glob;
 extern crate env_logger;
+extern crate regex;
+extern crate globset;
 
 extern crate futures;
 extern crate tokio;

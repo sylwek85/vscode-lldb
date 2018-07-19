@@ -1,13 +1,13 @@
 use serde_derive;
 use serde_json;
-use std::collections::btree_map::BTreeMap;
+use std::collections::HashMap as Map;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchConfig {
     pub args: Option<Vec<String>>,
     pub cwd: Option<String>,
-    pub env: Option<BTreeMap<String, String>>,
+    pub env: Option<Map<String, String>>,
     pub stdio: Option<Vec<String>>,
     pub terminal: Option<Terminal>,
     pub stop_on_entry: Option<bool>,
@@ -16,7 +16,7 @@ pub struct LaunchConfig {
     pub post_run_commands: Option<Vec<String>>,
     pub exit_commands: Option<Vec<String>>,
     pub expressions: Option<Expressions>,
-    pub source_map: Option<BTreeMap<String, String>>,
+    pub source_map: Option<Map<String, Option<String>>>,
     pub source_languages: Option<Vec<String>>,
 }
 
@@ -32,7 +32,7 @@ pub struct AttachConfig {
     pub post_run_commands: Option<Vec<String>>,
     pub exit_commands: Option<Vec<String>>,
     pub expressions: Option<Expressions>,
-    pub source_map: Option<BTreeMap<String, String>>,
+    pub source_map: Option<Map<String, Option<String>>>,
     pub source_languages: Option<Vec<String>>,
 }
 

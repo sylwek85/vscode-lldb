@@ -1,4 +1,5 @@
-use glob;
+use globset;
+use regex;
 use serde_json;
 
 use std;
@@ -106,7 +107,7 @@ struct DebugSessionInner {
     fn_breakpoints: HashMap<String, BreakpointID>,
     breakpoints: HashMap<BreakpointID, BreakpointInfo>,
     var_refs: HandleTree<VarsScope>,
-    source_map: MustInitialize<HashMap<glob::Pattern, String>>,
+    source_map: MustInitialize<Vec<(regex::Regex, Option<String>)>>,
     source_map_cache: HashMap<(String, String), Option<String>>,
 }
 
@@ -476,7 +477,7 @@ impl DebugSessionInner {
                     launch_info.set_arguments(args.iter().map(|a| a.as_ref()), false);
                 }
                 if let Some(env) = launch_config.env {
-                    let env: Vec<String> = env.iter().map(|(k,v)| format!("{}={}", k, v)).collect();
+                    let env: Vec<String> = env.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
                     launch_info.set_environment_entries(env.iter().map(|s| s.as_ref()), true);
                 }
                 if let Some(cwd) = launch_config.cwd {
@@ -484,6 +485,9 @@ impl DebugSessionInner {
                 }
                 if let Some(stop_on_entry) = launch_config.stop_on_entry {
                     launch_info.set_launch_flags(launch_info.launch_flags() | SBLaunchInfo::eLaunchFlagStopAtEntry);
+                }
+                if let Some(source_map) = launch_config.source_map {
+                    self.source_map = Initialized(build_source_map(&source_map)?);
                 }
             }
         }
@@ -896,49 +900,26 @@ impl DebugSessionInner {
     //             local_path = None
     //         self.filespec_cache[key] = local_path
     //     return local_path
-/*
+
     fn map_filespec_to_local_uncached(&mut self, filespec: &SBFileSpec) -> Option<String> {
         if !filespec.is_valid() {
-            return None
+            return None;
         }
-        let normalized = normalize_path(filespec.path());
-        for (remote_prefix_glob, local_prefix) in self.source_map {
-            if let Some(result) = remote_prefix_glob.captures(normalized) {
+        let normalized = normalize_path(&filespec.path());
+        for (remote_prefix, local_prefix) in self.source_map.iter() {
+            if let Some(captures) = remote_prefix.captures(&normalized) {
                 return match local_prefix {
-                    Some(local_prefix) => normalize_path(local_prefix + result.groups(1).unwrap()),
-                    None => None
-                }
+                    Some(prefix) => {
+                        let match_len = captures.get(1).unwrap().start();
+                        let result = normalize_path(&format!("{}{}", prefix, &normalized[match_len..]));
+                        Some(result)
+                    }
+                    None => None,
+                };
             }
         }
+        unimplemented!()
     }
-*/
-    // def map_filespec_to_local_uncached(self, filespec):
-    //     if self.source_map is None:
-    //         self.make_source_map()
-    //     path = filespec.fullpath
-    //     if path is None:
-    //         return None
-    //     path = os.path.normpath(path)
-    //     path_normcased = os.path.normcase(path)
-    //     for remote_prefix_regex, local_prefix in self.source_map:
-    //         m = remote_prefix_regex.match(path_normcased)
-    //         if m:
-    //             if local_prefix is None: # User directed us to suppress source info.
-    //                 return None
-    //             # We want to preserve original path casing, however this assumes
-    //             # that os.path.normcase will not change the string length...
-    //             return os.path.normpath(local_prefix + path[len(m.group(1)):])
-    //     return path
-
-    // def make_source_map(self):
-    //     source_map = []
-    //     for remote_prefix, local_prefix in self.launch_args.get("sourceMap", {}).items():
-    //         regex = fnmatch.translate(remote_prefix)
-    //         assert regex.endswith('\\Z(?ms)')
-    //         regex = regex[:-7] # strip the above suffix
-    //         regex = re.compile('(' + regex + ').*', re.M | re.S)
-    //         source_map.append((regex, local_prefix))
-    //     self.source_map = source_map
 }
 
 fn normalize_path(path: &str) -> String {
@@ -955,4 +936,26 @@ fn normalize_path(path: &str) -> String {
         }
     }
     normalized.to_str().unwrap().into()
+}
+
+fn build_source_map(
+    source_map: &HashMap<String, Option<String>>,
+) -> Result<Vec<(regex::Regex, Option<String>)>, Error> {
+    let mut compiled_source_map = vec![];
+    for (remote, local) in source_map {
+        let glob = match globset::Glob::new(remote) {
+            Ok(glob) => glob,
+            Err(err) => return Err(Error::UserError(format!("Invalid glob pattern: {}", remote))),
+        };
+        let regex = regex::Regex::new(&format!("({}).*", glob.regex())).unwrap(); // TODO: use ?
+        compiled_source_map.push((regex, local.clone()));
+    }
+    Ok(compiled_source_map)
+}
+
+#[test]
+fn test_source_map() {
+    let mut source_map = HashMap::new();
+    source_map.insert("/foo/bar/*".to_owned(), Some("/hren".to_owned()));
+    let compiled_source_map = build_source_map(&source_map);
 }
