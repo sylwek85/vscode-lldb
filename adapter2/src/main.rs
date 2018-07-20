@@ -47,6 +47,7 @@ mod launch_config;
 mod must_initialize;
 mod source_map;
 mod wire_protocol;
+mod disassembly;
 
 fn main() {
     env_logger::init();

@@ -929,8 +929,8 @@ impl SBAddress {
             return self->GetFileAddress();
         })
     }
-    pub fn load_address(&self, target: &SBTarget) -> usize {
-        cpp!(unsafe [self as "SBAddress*", target as "SBTarget*"] -> usize as "size_t" {
+    pub fn load_address(&self, target: &SBTarget) -> u64 {
+        cpp!(unsafe [self as "SBAddress*", target as "SBTarget*"] -> u64 as "uint64_t" {
             return self->GetLoadAddress(*target);
         })
     }
@@ -945,6 +945,16 @@ impl SBAddress {
         });
         if line_entry.is_valid() {
             Some(line_entry)
+        } else {
+            None
+        }
+    }
+    pub fn symbol(&self) -> Option<SBSymbol> {
+        let symbol = cpp!(unsafe [self as "SBAddress*"] -> SBSymbol as "SBSymbol" {
+            return self->GetSymbol();
+        });
+        if symbol.is_valid() {
+            Some(symbol)
         } else {
             None
         }
@@ -1197,6 +1207,11 @@ impl SBSymbol {
             return self->GetInstructions(target);
         })
     }
+    pub fn get_description(&self, description: &mut SBStream) -> bool {
+        cpp!(unsafe [self as "SBSymbol*", description as "SBStream*"] -> bool as "bool" {
+            return self->GetDescription(*description);
+        })
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1211,7 +1226,7 @@ impl SBInstruction {
             return self->IsValid();
         })
     }
-    pub fn address(&self, target: &SBTarget) -> SBAddress {
+    pub fn address(&self) -> SBAddress {
         cpp!(unsafe [self as "SBInstruction*"] -> SBAddress as "SBAddress" {
             return self->GetAddress();
         })
@@ -1236,6 +1251,50 @@ impl SBInstruction {
             return self->GetComment(target);
         });
         unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+    pub fn byte_size(&self) -> usize {
+        cpp!(unsafe [self as "SBInstruction*"] -> usize as "size_t" {
+            return self->GetByteSize();
+        })
+    }
+    pub fn data(&self, target: &SBTarget) -> SBData {
+        let target = target.clone();
+        cpp!(unsafe [self as "SBInstruction*", target as "SBTarget"] -> SBData as "SBData" {
+            return self->GetData(target);
+        })
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBData as "SBData");
+
+unsafe impl Send for SBData {}
+
+impl SBData {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBData*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
+    pub fn byte_size(&self) -> usize {
+        cpp!(unsafe [self as "SBData*"] -> usize as "size_t" {
+            return self->GetByteSize();
+        })
+    }
+    pub fn read_raw_data(&self, offset: u64, buffer: &mut [u8]) -> Result<(), SBError> {
+        let ptr = buffer.as_ptr();
+        let size = buffer.len();
+        let mut error = SBError::new();
+        let read_size = cpp!(unsafe [self as "SBData*", mut error as "SBError*", offset as "offset_t",
+                             ptr as "void*", size as "size_t"] -> usize as "size_t" {
+            return self->ReadRawData(error, offset, ptr, size);
+        });
+        if error.success() {
+            Ok(())
+        } else {
+            Err(error)
+        }
     }
 }
 
