@@ -95,6 +95,8 @@ struct DebugSessionInner {
     var_refs: HandleTree<VarsScope>,
     source_map: source_map::SourceMap,
     source_map_cache: HashMap<(Cow<'static, str>, Cow<'static, str>), Option<Rc<String>>>,
+    show_disassembly: Option<bool>,
+    suppress_missing_files: bool,
 }
 
 pub struct DebugSession {
@@ -126,6 +128,8 @@ impl DebugSession {
             var_refs: HandleTree::new(),
             source_map: source_map::SourceMap::empty(),
             source_map_cache: HashMap::new(),
+            show_disassembly: None,
+            suppress_missing_files: true,
         };
         let inner = Arc::new(Mutex::new(inner));
 
@@ -560,10 +564,13 @@ impl DebugSessionInner {
     }
 
     fn in_disassembly(&mut self, frame: &SBFrame) -> bool {
-        if let Some(le) = frame.line_entry() {
-            self.map_filespec_to_local(&le.file_spec()).is_none()
-        } else {
-            true
+        match self.show_disassembly {
+            Some(v) => v,
+            None => if let Some(le) = frame.line_entry() {
+                self.map_filespec_to_local(&le.file_spec()).is_none()
+            } else {
+                true
+            },
         }
     }
 
@@ -889,10 +896,13 @@ impl DebugSessionInner {
             match self.source_map_cache.get(&(directory.into(), filename.into())) {
                 Some(localized) => localized.clone(),
                 None => {
-                    let localized = self
-                        .source_map
-                        .to_local(filespec.path())
-                        .map(|path| Rc::new(path.to_string_lossy().into_owned()));
+                    let mut localized = self.source_map.to_local(filespec.path());
+                    if let Some(ref path) = localized {
+                        if self.suppress_missing_files && !path.is_file() {
+                            localized = None;
+                        }
+                    }
+                    let localized = localized.map(|path| Rc::new(path.to_string_lossy().into_owned()));
                     self.source_map_cache.insert(
                         (directory.to_owned().into(), filename.to_owned().into()),
                         localized.clone(),

@@ -245,6 +245,12 @@ impl SBTarget {
             })
         })
     }
+    pub fn read_instructions(&self, base_addr: &SBAddress, count: u32) -> SBInstructionList {
+        let base_addr = base_addr.clone();
+        cpp!(unsafe [self as "SBTarget*", base_addr as "SBAddress", count as "uint32_t"] -> SBInstructionList as "SBInstructionList" {
+            return self->ReadInstructions(base_addr, count);
+        })
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1142,5 +1148,120 @@ impl SBValueList {
     }
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = SBValue> + 'a {
         SBIterator::new(self.len() as u32, move |index| self.value_at_index(index))
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBSymbol as "SBSymbol");
+
+unsafe impl Send for SBSymbol {}
+
+impl SBSymbol {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBSymbol*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
+    pub fn name(&self) -> &str {
+        let ptr = cpp!(unsafe [self as "SBSymbol*"] -> *const c_char as "const char*" {
+            return self->GetName();
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+    pub fn display_name(&self) -> &str {
+        let ptr = cpp!(unsafe [self as "SBSymbol*"] -> *const c_char as "const char*" {
+            return self->GetDisplayName();
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+    pub fn mangled_name(&self) -> &str {
+        let ptr = cpp!(unsafe [self as "SBSymbol*"] -> *const c_char as "const char*" {
+            return self->GetMangledName();
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+    pub fn start_address(&self) -> SBAddress {
+        cpp!(unsafe [self as "SBSymbol*"] -> SBAddress as "SBAddress" {
+            return self->GetStartAddress();
+        })
+    }
+    pub fn end_address(&self) -> SBAddress {
+        cpp!(unsafe [self as "SBSymbol*"] -> SBAddress as "SBAddress" {
+            return self->GetEndAddress();
+        })
+    }
+    pub fn instructions(&self, target: &SBTarget) -> SBInstructionList {
+        let target = target.clone();
+        cpp!(unsafe [self as "SBSymbol*", target as "SBTarget"] -> SBInstructionList as "SBInstructionList" {
+            return self->GetInstructions(target);
+        })
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBInstruction as "SBInstruction");
+
+unsafe impl Send for SBInstruction {}
+
+impl SBInstruction {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBInstruction*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
+    pub fn address(&self, target: &SBTarget) -> SBAddress {
+        cpp!(unsafe [self as "SBInstruction*"] -> SBAddress as "SBAddress" {
+            return self->GetAddress();
+        })
+    }
+    pub fn mnemonic(&self, target: &SBTarget) -> &str {
+        let target = target.clone();
+        let ptr = cpp!(unsafe [self as "SBInstruction*", target as "SBTarget"] -> *const c_char as "const char*" {
+            return self->GetMnemonic(target);
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+    pub fn operands(&self, target: &SBTarget) -> &str {
+        let target = target.clone();
+        let ptr = cpp!(unsafe [self as "SBInstruction*", target as "SBTarget"] -> *const c_char as "const char*" {
+            return self->GetOperands(target);
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+    pub fn comment(&self, target: &SBTarget) -> &str {
+        let target = target.clone();
+        let ptr = cpp!(unsafe [self as "SBInstruction*", target as "SBTarget"] -> *const c_char as "const char*" {
+            return self->GetComment(target);
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBInstructionList as "SBInstructionList");
+
+unsafe impl Send for SBInstructionList {}
+
+impl SBInstructionList {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBInstructionList*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
+    pub fn len(&self) -> usize {
+        cpp!(unsafe [self as "SBInstructionList*"] -> usize as "size_t" {
+            return self->GetSize();
+        })
+    }
+    pub fn instruction_at_index(&self, index: u32) -> SBInstruction {
+        cpp!(unsafe [self as "SBInstructionList*", index as "uint32_t"] -> SBInstruction as "SBInstruction" {
+            return self->GetInstructionAtIndex(index);
+        })
+    }
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = SBInstruction> + 'a {
+        SBIterator::new(self.len() as u32, move |index| self.instruction_at_index(index))
     }
 }
