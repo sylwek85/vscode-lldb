@@ -1,52 +1,75 @@
 use error::Error;
-use globset::Glob;
-use regex::Regex;
+use globset::*;
 use std::path::{Component, Path, PathBuf};
 
 pub struct SourceMap {
-    pairs: Vec<(Regex, Option<String>)>,
+    glob_set: GlobSet,
+    local_prefixes: Vec<Option<String>>,
 }
 
 impl SourceMap {
-    pub fn new<'a>(source_map: impl IntoIterator<Item = &'a (String, Option<String>)>) -> Result<SourceMap, Error> {
-        let mut pairs = vec![];
-        for (remote, local) in source_map.into_iter() {
-            let glob = match Glob::new(&remote) {
-                Ok(glob) => glob,
-                Err(err) => return Err(Error::UserError(format!("Invalid glob pattern: {}", remote))),
-            };
-            let regex = Regex::new(&format!("({}).*", &glob.regex()[5..])).unwrap(); // TODO: use ?
-            pairs.push((regex, local.clone()));
+    pub fn empty() -> SourceMap {
+        SourceMap {
+            glob_set: GlobSetBuilder::new().build().unwrap(),
+            local_prefixes: vec![],
         }
-        Ok(SourceMap { pairs })
     }
 
-    pub fn to_local(&self, path: &str) -> Option<String> {
-        let normalized = normalize_path(path);
-        for (remote_prefix, local_prefix) in self.pairs.iter() {
-            if let Some(captures) = remote_prefix.captures(&normalized) {
-                return match local_prefix {
-                    Some(prefix) => {
-                        let match_len = captures.get(1).unwrap().start();
-                        let result = normalize_path(&format!("{}{}", prefix, &normalized[match_len..]));
-                        Some(result)
-                    }
+    pub fn new<R, L>(source_map: impl IntoIterator<Item = (R, Option<L>)>) -> Result<SourceMap, Error>
+    where
+        R: AsRef<str>,
+        L: AsRef<str>,
+    {
+        let mut builder = GlobSetBuilder::new();
+        let mut locals = vec![];
+        for (remote, local) in source_map.into_iter() {
+            let glob = match Glob::new(remote.as_ref()) {
+                Ok(glob) => glob,
+                Err(err) => return Err(Error::UserError(format!("Invalid glob pattern: {}", remote.as_ref()))),
+            };
+            builder.add(glob);
+            locals.push(local.map(|l| l.as_ref().to_owned()));
+        }
+        let glob_set = builder.build().unwrap();
+        Ok(SourceMap {
+            glob_set: glob_set,
+            local_prefixes: locals,
+        })
+    }
+
+    pub fn to_local(&self, path: impl AsRef<Path>) -> Option<PathBuf> {
+        let path = path.as_ref();
+
+        let mut matches = vec![];
+        let mut remote_prefix = PathBuf::new();
+        let mut components = path.components();
+        for component in path.components() {
+            components.next();
+            remote_prefix.push(component);
+            self.glob_set.matches_into(&remote_prefix, &mut matches);
+            if !matches.is_empty() {
+                let localized = match self.local_prefixes[matches[0]] {
                     None => None,
+                    Some(ref local) => {
+                        let mut localized = PathBuf::from(&local);
+                        localized.push(components.as_path()); // Append remainder of the path
+                        Some(normalize_path(&localized))
+                    }
                 };
+                return localized;
             }
         }
-        Some(normalized)
+        Some(normalize_path(path))
     }
 }
 
-pub fn normalize_path(path: &str) -> String {
+pub fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
+    let path = path.as_ref();
     let mut normalized = PathBuf::new();
     for component in Path::new(path).components() {
         match component {
-            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
-            Component::RootDir => (),
-            Component::Normal(comp) => normalized.push(comp),
-            Component::CurDir => (),
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => normalized.push(component),
+            Component::CurDir => {}
             Component::ParentDir => {
                 normalized.pop();
             }
@@ -56,10 +79,20 @@ pub fn normalize_path(path: &str) -> String {
 }
 
 #[test]
+fn test_normalize_path() {
+    assert_eq!(normalize_path("/foo/bar"), Path::new("/foo/bar"));
+    assert_eq!(normalize_path("foo/bar"), Path::new("foo/bar"));
+    assert_eq!(normalize_path("/foo/bar/./baz/./../"), Path::new("/foo/bar"));
+    assert_eq!(normalize_path(r"c:\foo\bar/./baz/./../"), Path::new(r"c:\foo\bar"));
+}
+
+#[test]
 fn test_source_map() {
-    let source_map = [
-        ("/foo/bar/*".to_owned(), Some("/hren".to_owned()))
-    ];
-    let map = SourceMap::new(&source_map).unwrap();
-    assert_eq!(map.to_local("/foo/bar/baz.cpp"), Some("/hren/baz.cpp".to_owned()));
+    let mappings = [("/foo/*", Some("/quoox")), ("/suppress/*", None)];
+    let it = mappings.iter().map(|(r, l)| (*r, *l));
+    let map = SourceMap::new(it).unwrap();
+
+    assert_eq!(map.to_local("/aaaa/bbbbb/baz.cpp"), Some("/aaaa/bbbbb/baz.cpp".into()));
+    assert_eq!(map.to_local("/foo/bar/baz.cpp"), Some("/quoox/baz.cpp".into()));
+    assert_eq!(map.to_local("/suppress/foo/baz.cpp"), None);
 }

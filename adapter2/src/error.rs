@@ -1,6 +1,7 @@
 use failure;
 use lldb;
 use std::option;
+use globset;
 
 #[derive(Fail, Debug)]
 pub enum Error {

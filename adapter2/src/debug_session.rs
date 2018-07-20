@@ -3,6 +3,7 @@ use regex;
 use serde_json;
 
 use std;
+use std::borrow::Cow;
 use std::boxed::FnBox;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
@@ -24,11 +25,11 @@ use tokio_threadpool::blocking;
 
 use cancellation::{CancellationSource, CancellationToken};
 use debug_protocol::*;
+use error::Error;
 use handles::{self, Handle, HandleTree, VPath};
 use launch_config::*;
 use lldb::*;
 use must_initialize::{Initialized, MustInitialize, NotInitialized};
-use error::Error;
 use source_map;
 
 type AsyncResponder = FnBox(&mut DebugSessionInner) -> Result<ResponseBody, Error>;
@@ -73,6 +74,12 @@ enum VarsScope {
     Container(SBValue),
 }
 
+#[derive(PartialOrd, Ord, PartialEq, Eq)]
+struct Key<'a> {
+    first: Cow<'a, str>,
+    second: Cow<'a, str>,
+}
+
 struct DebugSessionInner {
     send_message: mpsc::Sender<ProtocolMessage>,
     shutdown: CancellationSource,
@@ -86,8 +93,8 @@ struct DebugSessionInner {
     fn_breakpoints: HashMap<String, BreakpointID>,
     breakpoints: HashMap<BreakpointID, BreakpointInfo>,
     var_refs: HandleTree<VarsScope>,
-    source_map: MustInitialize<source_map::SourceMap>,
-    source_map_cache: HashMap<(String, String), Option<String>>,
+    source_map: source_map::SourceMap,
+    source_map_cache: HashMap<(Cow<'static, str>, Cow<'static, str>), Option<Rc<String>>>,
 }
 
 pub struct DebugSession {
@@ -117,7 +124,7 @@ impl DebugSession {
             fn_breakpoints: HashMap::new(),
             breakpoints: HashMap::new(),
             var_refs: HandleTree::new(),
-            source_map: NotInitialized,
+            source_map: source_map::SourceMap::empty(),
             source_map_cache: HashMap::new(),
         };
         let inner = Arc::new(Mutex::new(inner));
@@ -466,7 +473,8 @@ impl DebugSessionInner {
                     launch_info.set_launch_flags(launch_info.launch_flags() | SBLaunchInfo::eLaunchFlagStopAtEntry);
                 }
                 if let Some(source_map) = launch_config.source_map {
-                    self.source_map = Initialized(source_map::SourceMap::new(&source_map)?);
+                    let iter = source_map.iter().map(|(k, v)| (k, v.as_ref()));
+                    self.source_map = source_map::SourceMap::new(iter)?;
                 }
             }
         }
@@ -525,17 +533,22 @@ impl DebugSessionInner {
             } else {
                 format!("{:X}", pc_address.file_address())
             };
-            if let Some(le) = frame.line_entry() {
-                let fs = le.file_spec();
-                if let Some(local_path) = self.map_filespec_to_local(&fs) {
-                    stack_frame.line = le.line() as i64;
-                    stack_frame.column = le.column() as i64;
-                    stack_frame.source = Some(Source {
-                        name: Some(fs.filename().to_owned()),
-                        path: Some(fs.path()),
-                        ..Default::default()
-                    });
+
+            if !self.in_disassembly(&frame) {
+                if let Some(le) = frame.line_entry() {
+                    let fs = le.file_spec();
+                    if let Some(local_path) = self.map_filespec_to_local(&fs) {
+                        stack_frame.line = le.line() as i64;
+                        stack_frame.column = le.column() as i64;
+                        stack_frame.source = Some(Source {
+                            name: Some(fs.filename().to_owned()),
+                            path: Some(local_path.as_ref().clone()),
+                            ..Default::default()
+                        });
+                    }
                 }
+            } else {
+                // TODO: disassembly
             }
             stack_frames.push(stack_frame);
         }
@@ -544,6 +557,14 @@ impl DebugSessionInner {
             stack_frames: stack_frames,
             total_frames: Some(thread.num_frames() as i64),
         })
+    }
+
+    fn in_disassembly(&mut self, frame: &SBFrame) -> bool {
+        if let Some(le) = frame.line_entry() {
+            self.map_filespec_to_local(&le.file_spec()).is_none()
+        } else {
+            true
+        }
     }
 
     fn handle_scopes(&mut self, args: ScopesArguments) -> Result<ScopesResponseBody, Error> {
@@ -859,12 +880,26 @@ impl DebugSessionInner {
         }));
     }
 
-    fn map_filespec_to_local(&mut self, filespec: &SBFileSpec) -> Option<String> {
+    fn map_filespec_to_local(&mut self, filespec: &SBFileSpec) -> Option<Rc<String>> {
         if !filespec.is_valid() {
             return None;
         } else {
-            Some(source_map::normalize_path(&filespec.path()).into())
+            let directory = filespec.directory();
+            let filename = filespec.filename();
+            match self.source_map_cache.get(&(directory.into(), filename.into())) {
+                Some(localized) => localized.clone(),
+                None => {
+                    let localized = self
+                        .source_map
+                        .to_local(filespec.path())
+                        .map(|path| Rc::new(path.to_string_lossy().into_owned()));
+                    self.source_map_cache.insert(
+                        (directory.to_owned().into(), filename.to_owned().into()),
+                        localized.clone(),
+                    );
+                    localized
+                }
+            }
         }
     }
 }
-
