@@ -420,6 +420,7 @@ impl DebugSessionInner {
                             bp_resp.source = Some(Source {
                                 name: Some(file_name.to_owned()),
                                 path: Some(file_path.to_owned()),
+                                adapter_data: Some(json!(bp_info.id)),
                                 ..Default::default()
                             })
                         }
@@ -435,7 +436,11 @@ impl DebugSessionInner {
     }
 
     fn is_valid_source_bp_location(&mut self, bp_loc: &SBBreakpointLocation, bp_info: &mut BreakpointInfo) -> bool {
-        // TODO
+        if let Some(le) = bp_loc.address().line_entry() {
+            if let BreakpointKind::Source{ref mut resolved_line, ..} = bp_info.kind {
+                *resolved_line = Some(le.line());
+            }
+        }
         true
     }
 
@@ -547,12 +552,13 @@ impl DebugSessionInner {
                         stack_frame.source = Some(Source {
                             name: Some(fs.filename().to_owned()),
                             path: Some(local_path.as_ref().clone()),
+                            adapter_data: Some(json!("stack_trace")),
                             ..Default::default()
                         });
                     }
                 }
             } else {
-                // TODO: disassembly
+                //TODO: dasm
             }
             stack_frames.push(stack_frame);
         }

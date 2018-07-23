@@ -6,6 +6,7 @@
 #[macro_use]
 extern crate serde_derive;
 extern crate serde;
+#[macro_use]
 extern crate serde_json;
 #[macro_use]
 extern crate failure_derive;
@@ -18,6 +19,7 @@ extern crate bytes;
 extern crate env_logger;
 extern crate globset;
 extern crate regex;
+extern crate superslice;
 
 extern crate futures;
 extern crate tokio;

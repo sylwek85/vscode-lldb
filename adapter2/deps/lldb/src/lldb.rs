@@ -19,6 +19,7 @@ cpp!{{
 
 pub type ThreadID = u64;
 pub type BreakpointID = u32;
+pub type Address = u64;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -817,6 +818,21 @@ impl SBFrame {
             return self->GetRegisters();
         })
     }
+    pub fn pc(&self) -> Address {
+        cpp!(unsafe [self as "SBFrame*"] -> Address as "addr_t" {
+            return self->GetPC();
+        })
+    }
+    pub fn sp(&self) -> Address {
+        cpp!(unsafe [self as "SBFrame*"] -> Address as "addr_t" {
+            return self->GetSP();
+        })
+    }
+    pub fn fp(&self) -> Address {
+        cpp!(unsafe [self as "SBFrame*"] -> Address as "addr_t" {
+            return self->GetFP();
+        })
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1286,8 +1302,8 @@ impl SBData {
         let ptr = buffer.as_ptr();
         let size = buffer.len();
         let mut error = SBError::new();
-        let read_size = cpp!(unsafe [self as "SBData*", mut error as "SBError*", offset as "offset_t",
-                             ptr as "void*", size as "size_t"] -> usize as "size_t" {
+        cpp!(unsafe [self as "SBData*", mut error as "SBError", offset as "offset_t",
+                     ptr as "void*", size as "size_t"] -> usize as "size_t" {
             return self->ReadRawData(error, offset, ptr, size);
         });
         if error.success() {

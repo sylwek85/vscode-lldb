@@ -1,14 +1,17 @@
 use std::borrow::Cow;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap};
+use std::fmt::Write;
 use std::rc::Rc;
 use std::str;
-use std::collections::BTreeMap;
 
-use handles::{Handle, HandleTree};
+use handles::Handle;
 use lldb::*;
+use superslice::Ext;
 
 pub struct AddressSpace {
     target: SBTarget,
-    by_handle: HandleTree<Rc<DisassembledRange>>,
+    by_handle: HashMap<Handle, Rc<DisassembledRange>>,
     by_address: Vec<Rc<DisassembledRange>>,
 }
 
@@ -16,15 +19,35 @@ impl AddressSpace {
     pub fn new(target: &SBTarget) -> AddressSpace {
         AddressSpace {
             target: target.clone(),
-            by_handle: HandleTree::new(),
-            by_address: vec![],
+            by_handle: HashMap::new(),
+            by_address: Vec::new(),
         }
     }
 
-    const NO_SYMBOL_INSTRUCTIONS: u32 = 32;
+    pub fn get_by_handle(&self, handle: Handle) -> Option<Rc<DisassembledRange>> {
+        self.by_handle.get(&handle).map(|dasm| dasm.clone())
+    }
 
-    pub fn create_from_address(&self, addr: &SBAddress) /*-> DisassembledRange*/
-    {
+    pub fn get_by_address(&self, addr: &SBAddress) -> Option<Rc<DisassembledRange>> {
+        let load_addr = addr.load_address(&self.target);
+        let idx = self
+            .by_address
+            .upper_bound_by_key(&load_addr, |dasm| dasm.start_load_addr);
+        if idx == 0 {
+            None
+        } else {
+            let dasm = &self.by_address[idx - 1];
+            if dasm.start_load_addr <= load_addr && load_addr < dasm.end_load_addr {
+                Some(dasm.clone())
+            } else {
+                None
+            }
+        }
+    }
+
+    pub fn create_from_address(&mut self, addr: &SBAddress) -> Rc<DisassembledRange> {
+        const NO_SYMBOL_INSTRUCTIONS: u32 = 32;
+
         let start_addr;
         let end_addr;
         let instructions;
@@ -36,88 +59,121 @@ impl AddressSpace {
             }
             None => {
                 start_addr = addr.clone();
-                instructions = self
-                    .target
-                    .read_instructions(&start_addr, AddressSpace::NO_SYMBOL_INSTRUCTIONS + 1);
+                instructions = self.target.read_instructions(&start_addr, NO_SYMBOL_INSTRUCTIONS + 1);
                 let last_instr = instructions.instruction_at_index((instructions.len() - 1) as u32);
                 end_addr = last_instr.address();
             }
         }
-        let dasm_range = DisassembledRange::new(&self.target, start_addr, end_addr, instructions);
+        self.add(start_addr, end_addr, instructions)
+    }
+
+    pub fn create_from_range(&mut self, start: &SBAddress, end: &SBAddress) -> Rc<DisassembledRange> {
+        unimplemented!()
+    }
+
+    fn add(
+        &mut self, start_addr: SBAddress, end_addr: SBAddress, instructions: SBInstructionList,
+    ) -> Rc<DisassembledRange> {
+        let handle = Handle::new((self.by_handle.len() + 1000) as u32).unwrap();
+        let instruction_addrs = instructions
+            .iter()
+            .map(|i| i.address().load_address(&self.target))
+            .collect();
+        let dasm = Rc::new(DisassembledRange {
+            handle: handle,
+            start_load_addr: start_addr.load_address(&self.target),
+            end_load_addr: end_addr.load_address(&self.target),
+            start_addr: start_addr,
+            end_addr: end_addr,
+            instructions: instructions,
+            instruction_addresses: instruction_addrs,
+            source_text: RefCell::new(None),
+        });
+        self.by_handle.insert(handle, dasm.clone());
+        let idx = self
+            .by_address
+            .lower_bound_by_key(&dasm.start_load_addr, |dasm| dasm.start_load_addr);
+        self.by_address.insert(idx, dasm.clone());
+        dasm
     }
 }
 
-struct DisassembledRange {
-    start_sbaddr: SBAddress,
-    end_sbaddr: SBAddress,
-    start_address: u64,
-    end_address: u64,
-    target: SBTarget,
-    source_ref: Handle,
+pub struct DisassembledRange {
+    handle: Handle,
+    start_addr: SBAddress,
+    end_addr: SBAddress,
+    start_load_addr: Address,
+    end_load_addr: Address,
+    instructions: SBInstructionList,
+    instruction_addresses: Vec<Address>,
+    source_text: RefCell<Option<String>>,
 }
 
 impl DisassembledRange {
-    const MAX_INSTR_BYTES: u32 = 8;
-
-    fn new(
-        target: &SBTarget, start_sbaddr: SBAddress, end_sbaddr: SBAddress, instructions: SBInstructionList,
-    ) -> DisassembledRange {
-        let start_address = start_sbaddr.load_address(target);
-        let end_address = end_sbaddr.load_address(target);
-        DisassembledRange {
-            target: target.clone(),
-            start_sbaddr,
-            end_sbaddr,
-            start_address,
-            end_address,
-            source_ref: Handle::new(0).unwrap(),
-        }
+    pub fn line_num_by_address(&self, addr: Address) {
+        unimplemented!();
     }
 
-    fn get_source_text(&self) {
-        let source_location: Cow<str> = match self.start_sbaddr.line_entry() {
-            Some(le) => format!("{}:{}", le.file_spec().path(), le.line()).into(),
-            None => "unknown".into(),
-        };
-        let description: Cow<str> = match self.start_sbaddr.symbol() {
-            Some(symbol) => {
-                let mut descr = SBStream::new();
-                if symbol.get_description(&mut descr) {
-                    match str::from_utf8(descr.data()) {
-                        Ok(s) => Some(s.to_owned().into()),
-                        Err(_) => None,
-                    }
-                } else {
-                    None
-                }
-            }
-            None => None,
-        }.unwrap_or("No Symbol Info".into());
+    pub fn address_by_line_num(&self, line: u32) {
+        unimplemented!();
+    }
 
-        unimplemented!()
+    pub fn handle(&self) -> Handle {
+        self.handle
+    }
 
-        // lines = [
-        //     '; %s' % description,
-        //     '; Source location: %s' % source_location ]
-        // dump = []
-        // for instr in self.instructions:
-        //     addr = instr.GetAddress().GetLoadAddress(self.target)
-        //     del dump[:]
-        //     for i,b in enumerate(instr.GetData(self.target).uint8):
-        //         if i >= MAX_INSTR_BYTES:
-        //             dump.append('>')
-        //             break
-        //         dump.append('%02X ' % b)
-        //     comment = instr.GetComment(self.target)
-        //     line = '%08X: %s %-6s %s%s%s' % (
-        //         addr,
-        //         ''.join(dump).ljust(MAX_INSTR_BYTES * 3 + 2),
-        //         instr.GetMnemonic(self.target),
-        //         instr.GetOperands(self.target),
-        //         '  ; ' if len(comment) > 0 else '',
-        //         comment
-        //     )
-        //     lines.append(line)
-        // return '\n'.join(lines)
+    fn get_source_text(&self) -> String {
+        unimplemented!();
+
+        // let source_location: Cow<str> = match self.start_sbaddr.line_entry() {
+        //     Some(le) => format!("{}:{}", le.file_spec().path(), le.line()).into(),
+        //     None => "unknown".into(),
+        // };
+        // let description: Cow<str> = match self.start_sbaddr.symbol() {
+        //     Some(symbol) => {
+        //         let mut descr = SBStream::new();
+        //         if symbol.get_description(&mut descr) {
+        //             match str::from_utf8(descr.data()) {
+        //                 Ok(s) => Some(s.to_owned().into()),
+        //                 Err(_) => None,
+        //             }
+        //         } else {
+        //             None
+        //         }
+        //     }
+        //     None => None,
+        // }.unwrap_or("No Symbol Info".into());
+
+        // let mut text = String::new();
+        // writeln!(text, "; {}", description);
+        // writeln!(text, "; Source location: {}", source_location);
+
+        // const MAX_INSTR_BYTES: usize = 8;
+        // let mut instr_data = vec![];
+        // let mut dump = String::new();
+        // for instr in self.instructions.iter() {
+        //     let addr = instr.address().load_address(&self.target);
+        //     instr_data.resize(instr.byte_size(), 0);
+        //     instr.read_raw_data(0, &instr_data).unwrap();
+        //     dump.clear();
+        //     for (i, b) in instr_data.iter().enumerate() {
+        //         if i >= MAX_INSTR_BYTES {
+        //             write!(dump, ">");
+        //             break;
+        //         }
+        //         write!(dump, "{:02X}", b);
+        //     }
+        //     let mnemonic = instr.mnemonic();
+        //     let operands = instr.operands();
+        //     let comment = instr.comment();
+        //     let comment_sep = if comment.empty() { "" } else { "  ; " };
+        //     #[rustfmt_skip]
+        //     writeln!(text, "{:08X}: {:<dumpwidth$} {:<6} {}{}{}",
+        //         addr, dump, mnemonic, operands, comment_sep, comment,
+        //         dumpwidth=MAX_INSTR_BYTES * 3 + 2
+        //     );
+        // }
+
+        // text
     }
 }
