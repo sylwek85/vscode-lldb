@@ -25,9 +25,9 @@ use tokio_threadpool::blocking;
 
 use cancellation::{CancellationSource, CancellationToken};
 use debug_protocol::*;
+use disassembly;
 use error::Error;
 use handles::{self, Handle, HandleTree, VPath};
-use launch_config::*;
 use lldb::*;
 use must_initialize::{Initialized, MustInitialize, NotInitialized};
 use source_map;
@@ -35,12 +35,9 @@ use source_map;
 type AsyncResponder = FnBox(&mut DebugSessionInner) -> Result<ResponseBody, Error>;
 
 #[derive(Hash, Eq, PartialEq, Debug)]
-struct SourceRef(u32);
-
-#[derive(Hash, Eq, PartialEq, Debug)]
 enum FileId {
     Filename(String),
-    Disassembly(SourceRef),
+    Disassembly(Handle),
 }
 
 enum BreakpointKind {
@@ -89,10 +86,11 @@ struct DebugSessionInner {
     process: MustInitialize<SBProcess>,
     process_launched: bool,
     on_configuration_done: Option<(u32, Box<AsyncResponder>)>,
-    line_breakpoints: HashMap<FileId, HashMap<i64, BreakpointID>>,
+    source_breakpoints: HashMap<FileId, HashMap<i64, BreakpointID>>,
     fn_breakpoints: HashMap<String, BreakpointID>,
     breakpoints: HashMap<BreakpointID, BreakpointInfo>,
     var_refs: HandleTree<VarsScope>,
+    disassembly: MustInitialize<disassembly::AddressSpace>,
     source_map: source_map::SourceMap,
     source_map_cache: HashMap<(Cow<'static, str>, Cow<'static, str>), Option<Rc<String>>>,
     show_disassembly: Option<bool>,
@@ -122,10 +120,11 @@ impl DebugSession {
             process_launched: false,
             event_listener: SBListener::new_with_name("DebugSession"),
             on_configuration_done: None,
-            line_breakpoints: HashMap::new(),
+            source_breakpoints: HashMap::new(),
             fn_breakpoints: HashMap::new(),
             breakpoints: HashMap::new(),
             var_refs: HandleTree::new(),
+            disassembly: NotInitialized,
             source_map: source_map::SourceMap::empty(),
             source_map_cache: HashMap::new(),
             show_disassembly: None,
@@ -250,17 +249,20 @@ impl DebugSessionInner {
 
     fn handle_request(&mut self, request: Request) {
         //info!("Received message: {:?}", request);
+        #[rustfmt_skip]
         let result = match request.arguments {
-            RequestArguments::initialize(args) => self.handle_initialize(args).map(|r| ResponseBody::initialize(r)),
-            RequestArguments::setBreakpoints(args) => self
-                .handle_set_breakpoints(args)
-                .map(|r| ResponseBody::setBreakpoints(r)),
-            RequestArguments::setFunctionBreakpoints(args) => self
-                .handle_set_function_breakpoints(args)
-                .map(|r| ResponseBody::setFunctionBreakpoints(r)),
-            RequestArguments::setExceptionBreakpoints(args) => self
-                .handle_set_exception_breakpoints(args)
-                .map(|r| ResponseBody::setExceptionBreakpoints),
+            RequestArguments::initialize(args) =>
+                self.handle_initialize(args)
+                    .map(|r| ResponseBody::initialize(r)),
+            RequestArguments::setBreakpoints(args) =>
+                self.handle_set_breakpoints(args)
+                    .map(|r| ResponseBody::setBreakpoints(r)),
+            RequestArguments::setFunctionBreakpoints(args) =>
+                self.handle_set_function_breakpoints(args)
+                    .map(|r| ResponseBody::setFunctionBreakpoints(r)),
+            RequestArguments::setExceptionBreakpoints(args) =>
+                self.handle_set_exception_breakpoints(args)
+                    .map(|r| ResponseBody::setExceptionBreakpoints),
             RequestArguments::launch(args) => {
                 match self.handle_launch(args) {
                     Ok(responder) => {
@@ -279,36 +281,45 @@ impl DebugSessionInner {
                     Err(err) => Err(err),
                 }
             }
-            RequestArguments::configurationDone => self
-                .handle_configuration_done()
-                .map(|r| ResponseBody::configurationDone),
-            RequestArguments::threads => self // br
-                .handle_threads()
-                .map(|r| ResponseBody::threads(r)),
-            RequestArguments::stackTrace(args) => self // br
-                .handle_stack_trace(args)
-                .map(|r| ResponseBody::stackTrace(r)),
-            RequestArguments::scopes(args) => self // br
-                .handle_scopes(args)
-                .map(|r| ResponseBody::scopes(r)),
-            RequestArguments::variables(args) => self // br
-                .handle_variables(args)
-                .map(|r| ResponseBody::variables(r)),
-            RequestArguments::continue_(args) => self // br
-                .handle_continue(args)
-                .map(|r| ResponseBody::continue_(r)),
-            RequestArguments::next(args) => self // br
-                .handle_next(args)
-                .map(|r| ResponseBody::next),
-            RequestArguments::stepIn(args) => self // br
-                .handle_step_in(args)
-                .map(|r| ResponseBody::stepIn),
-            RequestArguments::stepOut(args) => self // br
-                .handle_step_out(args)
-                .map(|r| ResponseBody::stepOut),
-            RequestArguments::disconnect(args) => self // br
-                .handle_disconnect(args)
-                .map(|_| ResponseBody::disconnect),
+            RequestArguments::configurationDone =>
+                self.handle_configuration_done()
+                    .map(|r| ResponseBody::configurationDone),
+            RequestArguments::threads =>
+                self.handle_threads()
+                    .map(|r| ResponseBody::threads(r)),
+            RequestArguments::stackTrace(args) =>
+                self.handle_stack_trace(args)
+                    .map(|r| ResponseBody::stackTrace(r)),
+            RequestArguments::scopes(args) =>
+                self.handle_scopes(args)
+                    .map(|r| ResponseBody::scopes(r)),
+            RequestArguments::variables(args) =>
+                self.handle_variables(args)
+                    .map(|r| ResponseBody::variables(r)),
+            RequestArguments::pause(args) =>
+                self.handle_pause(args)
+                    .map(|_| ResponseBody::pause),
+            RequestArguments::continue_(args) =>
+                self.handle_continue(args)
+                    .map(|r| ResponseBody::continue_(r)),
+            RequestArguments::next(args) =>
+                self.handle_next(args)
+                    .map(|r| ResponseBody::next),
+            RequestArguments::stepIn(args) =>
+                self.handle_step_in(args)
+                    .map(|r| ResponseBody::stepIn),
+            RequestArguments::stepOut(args) =>
+                self.handle_step_out(args)
+                    .map(|r| ResponseBody::stepOut),
+            RequestArguments::source(args) =>
+                self.handle_source(args)
+                    .map(|r| ResponseBody::source(r)),
+            RequestArguments::disconnect(args) =>
+                self.handle_disconnect(args)
+                    .map(|_| ResponseBody::disconnect),
+            RequestArguments::displaySettings(args) =>
+                self.handle_display_settings(args)
+                    .map(|_| ResponseBody::displaySettings),
             _ => {
                 error!("No handler for request message: {:?}", request);
                 Err(Error::Internal("Not implemented.".into()))
@@ -353,7 +364,7 @@ impl DebugSessionInner {
 
         let caps = Capabilities {
             supports_configuration_done_request: true,
-            supports_evaluate_for_hovers: true,
+            supports_evaluate_for_hovers: false, // TODO
             supports_function_breakpoints: true,
             supports_conditional_breakpoints: true,
             supports_hit_conditional_breakpoints: true,
@@ -368,18 +379,37 @@ impl DebugSessionInner {
 
     fn handle_set_breakpoints(&mut self, args: SetBreakpointsArguments) -> Result<SetBreakpointsResponseBody, Error> {
         let file_id = FileId::Filename(args.source.path.as_ref()?.clone());
-        let file_bps = self.line_breakpoints.remove(&file_id).unwrap_or_default();
-        let breakpoints =
-            self.set_source_breakpoints(file_bps, &args.breakpoints.as_ref()?, args.source.path.as_ref()?);
+
+        let requested_bps = args.breakpoints.as_ref().unwrap();
+        let mut old_existing_bps = self.source_breakpoints.remove(&file_id).unwrap_or_default();
+
+        let mut existing_bps = HashMap::new();
+        for (line, bp_id) in old_existing_bps.drain() {
+            if !requested_bps.iter().any(|rbp| rbp.line == line) {
+                self.target.breakpoint_delete(bp_id);
+                self.breakpoints.remove(&bp_id);
+            } else {
+                existing_bps.insert(line, bp_id);
+            }
+        }
+
+        let breakpoints = self.set_source_breakpoints(
+            &mut existing_bps,
+            &args.breakpoints.as_ref()?,
+            args.source.path.as_ref()?,
+        );
+
+        self.source_breakpoints.insert(file_id, existing_bps);
+
         let response = SetBreakpointsResponseBody { breakpoints };
         Ok(response)
     }
 
     fn set_source_breakpoints(
-        &mut self, mut existing_bps: HashMap<i64, BreakpointID>, req_bps: &[SourceBreakpoint], file_path: &str,
+        &mut self, existing_bps: &mut HashMap<i64, BreakpointID>, requested_bps: &[SourceBreakpoint], file_path: &str,
     ) -> Vec<Breakpoint> {
         let mut breakpoints = vec![];
-        for req in req_bps {
+        for req in requested_bps {
             let mut bp_resp = Breakpoint { ..Default::default() };
 
             let bp = if let Some(bp_id) = existing_bps.get(&req.line).cloned() {
@@ -437,7 +467,10 @@ impl DebugSessionInner {
 
     fn is_valid_source_bp_location(&mut self, bp_loc: &SBBreakpointLocation, bp_info: &mut BreakpointInfo) -> bool {
         if let Some(le) = bp_loc.address().line_entry() {
-            if let BreakpointKind::Source{ref mut resolved_line, ..} = bp_info.kind {
+            if let BreakpointKind::Source {
+                ref mut resolved_line, ..
+            } = bp_info.kind
+            {
                 *resolved_line = Some(le.line());
             }
         }
@@ -457,35 +490,32 @@ impl DebugSessionInner {
 
     fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<Box<AsyncResponder>, Error> {
         self.target = Initialized(self.debugger.create_target(&args.program, None, None, false)?);
+        self.disassembly = Initialized(disassembly::AddressSpace::new(&self.target));
         self.send_event(EventBody::initialized);
         Ok(Box::new(move |s: &mut DebugSessionInner| s.complete_launch(args)))
     }
 
     fn complete_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody, Error> {
         let mut launch_info = SBLaunchInfo::new();
-        match serde_json::from_value::<LaunchConfig>(serde_json::Value::Object(args.custom)) {
-            Err(err) => {
-                return Err(Error::UserError(format!("{}", err)));
-            }
-            Ok(launch_config) => {
-                if let Some(args) = launch_config.args {
-                    launch_info.set_arguments(args.iter().map(|a| a.as_ref()), false);
-                }
-                if let Some(env) = launch_config.env {
-                    let env: Vec<String> = env.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
-                    launch_info.set_environment_entries(env.iter().map(|s| s.as_ref()), true);
-                }
-                if let Some(cwd) = launch_config.cwd {
-                    launch_info.set_working_directory(&cwd);
-                }
-                if let Some(stop_on_entry) = launch_config.stop_on_entry {
-                    launch_info.set_launch_flags(launch_info.launch_flags() | SBLaunchInfo::eLaunchFlagStopAtEntry);
-                }
-                if let Some(source_map) = launch_config.source_map {
-                    let iter = source_map.iter().map(|(k, v)| (k, v.as_ref()));
-                    self.source_map = source_map::SourceMap::new(iter)?;
-                }
-            }
+        if let Some(ds) = args.display_settings {
+            self.update_display_settings(&ds);
+        }
+        if let Some(args) = args.args {
+            launch_info.set_arguments(args.iter().map(|a| a.as_ref()), false);
+        }
+        if let Some(env) = args.env {
+            let env: Vec<String> = env.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
+            launch_info.set_environment_entries(env.iter().map(|s| s.as_ref()), true);
+        }
+        if let Some(cwd) = args.cwd {
+            launch_info.set_working_directory(&cwd);
+        }
+        if let Some(stop_on_entry) = args.stop_on_entry {
+            launch_info.set_launch_flags(launch_info.launch_flags() | SBLaunchInfo::eLaunchFlagStopAtEntry);
+        }
+        if let Some(source_map) = args.source_map {
+            let iter = source_map.iter().map(|(k, v)| (k, v.as_ref()));
+            self.source_map = source_map::SourceMap::new(iter)?;
         }
         launch_info.set_listener(&self.event_listener);
         self.process = Initialized(self.target.launch(launch_info)?);
@@ -552,13 +582,26 @@ impl DebugSessionInner {
                         stack_frame.source = Some(Source {
                             name: Some(fs.filename().to_owned()),
                             path: Some(local_path.as_ref().clone()),
-                            adapter_data: Some(json!("stack_trace")),
                             ..Default::default()
                         });
                     }
                 }
             } else {
-                //TODO: dasm
+                let pc_addr = frame.pc_address();
+                let dasm = match self.disassembly.get_by_address(&pc_addr) {
+                    Some(dasm) => dasm,
+                    None => {
+                        debug!("Creating disassembly for {:?}", pc_addr);
+                        self.disassembly.create_from_address(&pc_addr)
+                    }
+                };
+                stack_frame.line = dasm.line_num_by_address(pc_addr.load_address(&self.target)) as i64;
+                stack_frame.column = 0;
+                stack_frame.source = Some(Source {
+                    name: Some(dasm.source_name().to_owned()),
+                    source_reference: Some(handles::to_i64(Some(dasm.handle()))),
+                    ..Default::default()
+                });
             }
             stack_frames.push(stack_frame);
         }
@@ -690,6 +733,7 @@ impl DebugSessionInner {
     fn convert_scope_values(
         &mut self, vars_iter: &mut Iterator<Item = SBValue>, container_handle: Option<Handle>,
     ) -> Vec<Variable> {
+        // TODO: [raw], evaluateName
         let mut variables = vec![];
         for var in vars_iter {
             if let Some(name) = var.name() {
@@ -763,6 +807,7 @@ impl DebugSessionInner {
     }
 
     fn handle_continue(&mut self, args: ContinueArguments) -> Result<ContinueResponseBody, Error> {
+        self.before_resume();
         let error = self.process.resume();
         if error.success() {
             Ok(ContinueResponseBody {
@@ -776,14 +821,24 @@ impl DebugSessionInner {
     fn handle_next(&mut self, args: NextArguments) -> Result<(), Error> {
         self.before_resume();
         let thread = self.process.thread_by_id(args.thread_id as ThreadID)?;
-        thread.step_over();
+        let frame = thread.frame_at_index(0);
+        if !self.in_disassembly(&frame) {
+            thread.step_over();
+        } else {
+            thread.step_instruction(true);
+        }
         Ok(())
     }
 
     fn handle_step_in(&mut self, args: StepInArguments) -> Result<(), Error> {
         self.before_resume();
         let thread = self.process.thread_by_id(args.thread_id as ThreadID)?;
-        let error = thread.step_into();
+        let frame = thread.frame_at_index(0);
+        if !self.in_disassembly(&frame) {
+            thread.step_into();
+        } else {
+            thread.step_instruction(false);
+        }
         Ok(())
     }
 
@@ -792,6 +847,15 @@ impl DebugSessionInner {
         let thread = self.process.thread_by_id(args.thread_id as ThreadID)?;
         thread.step_out();
         Ok(())
+    }
+
+    fn handle_source(&mut self, args: SourceArguments) -> Result<SourceResponseBody, Error> {
+        let handle = handles::from_i64(args.source_reference).unwrap();
+        let dasm = self.disassembly.get_by_handle(handle).unwrap();
+        Ok(SourceResponseBody {
+            content: dasm.get_source_text(),
+            mime_type: Some("text/x-lldb.disassembly".to_owned()),
+        })
     }
 
     fn handle_disconnect(&mut self, args: DisconnectArguments) -> Result<(), Error> {
@@ -806,12 +870,42 @@ impl DebugSessionInner {
         Ok(())
     }
 
+    fn handle_display_settings(&mut self, args: DisplaySettingsArguments) -> Result<(), Error> {
+        self.update_display_settings(&args);
+        self.refresh_client_display();
+        Ok(())
+    }
+
+    fn update_display_settings(&mut self, args: &DisplaySettingsArguments) {
+        self.show_disassembly = match args.show_disassembly {
+            None => None,
+            Some(ShowDisassembly::Auto) => None,
+            Some(ShowDisassembly::Always) => Some(true),
+            Some(ShowDisassembly::Never) => Some(false),
+        };
+    }
+
+    // Fake target start/stop to force VSCode to refresh UI state.
+    fn refresh_client_display(&mut self) {
+        let thread_id = self.process.selected_thread().thread_id();
+        self.send_event(EventBody::continued(ContinuedEventBody {
+            thread_id: thread_id as i64,
+            all_threads_continued: Some(true),
+        }));
+        self.send_event(EventBody::stopped(StoppedEventBody {
+            thread_id: Some(thread_id as i64),
+            //preserve_focus_hint: Some(true),
+            all_threads_stopped: Some(true),
+            ..Default::default()
+        }));
+    }
+
     fn before_resume(&mut self) {
         self.var_refs.reset();
     }
 
     fn handle_debug_event(&mut self, event: SBEvent) {
-        debug!("Debug event: {}", event);
+        debug!("Debug event: {:?}", event);
         if let Some(process_event) = event.as_process_event() {
             self.handle_process_event(&process_event);
         } else if let Some(bp_event) = event.as_breakpoint_event() {
@@ -846,14 +940,16 @@ impl DebugSessionInner {
         // Check the currently selected thread first
         let selected_thread = self.process.selected_thread();
         stopped_thread = match selected_thread.stop_reason() {
-            StopReason::Invalid | StopReason::None => None,
+            StopReason::Invalid | // br
+            StopReason::None => None,
             _ => Some(selected_thread),
         };
         // Fall back to scanning all threads in the process
         if stopped_thread.is_none() {
             for thread in self.process.threads() {
                 match thread.stop_reason() {
-                    StopReason::Invalid | StopReason::None => (),
+                    StopReason::Invalid | // br
+                    StopReason::None => (),
                     _ => {
                         self.process.set_selected_thread(&thread);
                         stopped_thread = Some(thread);
@@ -863,24 +959,26 @@ impl DebugSessionInner {
             }
         }
         // Analyze stop reason
-        let (stop_reason_str, description) = if let Some(ref stopped_thread) = stopped_thread {
-            let stop_reason = stopped_thread.stop_reason();
-            match stop_reason {
-                StopReason::Breakpoint => ("breakpoint", None),
-                StopReason::Trace | StopReason::PlanComplete => ("step", None),
-                _ => {
-                    // Print stop details for these types
-                    let description = Some(stopped_thread.stop_description());
-                    match stop_reason {
-                        StopReason::Watchpoint => ("watchpoint", description),
-                        StopReason::Signal => ("signal", description),
-                        StopReason::Exception => ("exception", description),
-                        _ => ("unknown", description),
+        let (stop_reason_str, description) = match stopped_thread {
+            Some(ref stopped_thread) => {
+                let stop_reason = stopped_thread.stop_reason();
+                match stop_reason {
+                    StopReason::Breakpoint => ("breakpoint", None),
+                    StopReason::Trace | // br
+                    StopReason::PlanComplete => ("step", None),
+                    _ => {
+                        // Print stop details for these types
+                        let description = Some(stopped_thread.stop_description());
+                        match stop_reason {
+                            StopReason::Watchpoint => ("watchpoint", description),
+                            StopReason::Signal => ("signal", description),
+                            StopReason::Exception => ("exception", description),
+                            _ => ("unknown", description),
+                        }
                     }
                 }
             }
-        } else {
-            ("unknown", None)
+            None => ("unknown", None),
         };
 
         self.send_event(EventBody::stopped(StoppedEventBody {

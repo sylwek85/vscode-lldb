@@ -2,6 +2,7 @@
 #![feature(try_trait)]
 #![feature(fnbox)]
 #![feature(nll)]
+#![feature(custom_attribute)]
 
 #[macro_use]
 extern crate serde_derive;
@@ -10,7 +11,7 @@ extern crate serde;
 extern crate serde_json;
 #[macro_use]
 extern crate failure_derive;
-extern crate debug_protocol;
+extern crate debug_protocol as raw_debug_protocol;
 extern crate failure;
 extern crate lldb;
 #[macro_use]
@@ -45,11 +46,11 @@ mod cancellation;
 mod debug_session;
 mod error;
 mod handles;
-mod launch_config;
 mod must_initialize;
 mod source_map;
 mod wire_protocol;
 mod disassembly;
+mod debug_protocol;
 
 fn main() {
     env_logger::init();

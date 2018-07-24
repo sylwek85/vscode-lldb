@@ -210,6 +210,24 @@ impl SBError {
     }
 }
 
+impl fmt::Display for SBError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+impl fmt::Debug for SBError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if !self.is_valid() {
+            f.write_str("Invalid")
+        } else if self.success() {
+            f.write_str("Success")
+        } else {
+            write!(f, "Failure({})", self.message())
+        }
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
 cpp_class!(pub unsafe struct SBTarget as "SBTarget");
@@ -244,6 +262,11 @@ impl SBTarget {
             cpp!(unsafe [self as "SBTarget*", file as "const char*", line as "uint32_t"] -> SBBreakpoint as "SBBreakpoint" {
                 return self->BreakpointCreateByLocation(file, line);
             })
+        })
+    }
+    pub fn breakpoint_delete(&self, id: BreakpointID) -> bool {
+        cpp!(unsafe [self as "SBTarget*", id as "break_id_t"] -> bool as "bool" {
+            return self->BreakpointDelete(id);
         })
     }
     pub fn read_instructions(&self, base_addr: &SBAddress, count: u32) -> SBInstructionList {
@@ -393,7 +416,7 @@ impl SBEvent {
     // pub fn as_thread_event(&self) -> Option<SBThreadEvent> {}
 }
 
-impl fmt::Display for SBEvent {
+impl fmt::Debug for SBEvent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut descr = SBStream::new();
         if self.get_description(&mut descr) {
@@ -730,6 +753,11 @@ impl SBThread {
             return self->StepOut();
         })
     }
+    pub fn step_instruction(&self, step_over: bool) {
+        cpp!(unsafe [self as "SBThread*", step_over as "bool"] {
+            return self->StepInstruction(step_over);
+        })
+    }
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -973,6 +1001,25 @@ impl SBAddress {
             Some(symbol)
         } else {
             None
+        }
+    }
+    pub fn get_description(&self, description: &mut SBStream) -> bool {
+        cpp!(unsafe [self as "SBAddress*", description as "SBStream*"] -> bool as "bool" {
+            return self->GetDescription(*description);
+        })
+    }
+}
+
+impl fmt::Debug for SBAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut descr = SBStream::new();
+        if self.get_description(&mut descr) {
+            match str::from_utf8(descr.data()) {
+                Ok(s) => f.write_str(s),
+                Err(_) => Err(fmt::Error),
+            }
+        } else {
+            Ok(())
         }
     }
 }

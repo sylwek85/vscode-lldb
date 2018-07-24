@@ -2049,7 +2049,7 @@ pub struct Source {
         /// so it must not be used to persist a source.
         #[serde(skip_serializing_if = "Option::is_none")]
         #[serde(rename = "sourceReference")]
-        pub source_reference: Option<f64>,
+        pub source_reference: Option<i64>,
         /// An optional list of sources that are related to this source. These may be the source that
         /// generated this source.
         #[serde(skip_serializing_if = "Option::is_none")]

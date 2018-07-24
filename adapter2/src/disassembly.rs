@@ -79,12 +79,16 @@ impl AddressSpace {
             .iter()
             .map(|i| i.address().load_address(&self.target))
             .collect();
+        let start_load_addr = start_addr.load_address(&self.target);
+        let end_load_addr = end_addr.load_address(&self.target);
         let dasm = Rc::new(DisassembledRange {
             handle: handle,
-            start_load_addr: start_addr.load_address(&self.target),
-            end_load_addr: end_addr.load_address(&self.target),
+            target: self.target.clone(),
             start_addr: start_addr,
             end_addr: end_addr,
+            start_load_addr: start_load_addr,
+            end_load_addr: end_load_addr,
+            source_name: format!("@{:x}..{:x}", start_load_addr, end_load_addr),
             instructions: instructions,
             instruction_addresses: instruction_addrs,
             source_text: RefCell::new(None),
@@ -100,80 +104,85 @@ impl AddressSpace {
 
 pub struct DisassembledRange {
     handle: Handle,
+    target: SBTarget,
     start_addr: SBAddress,
     end_addr: SBAddress,
     start_load_addr: Address,
     end_load_addr: Address,
+    source_name: String,
     instructions: SBInstructionList,
     instruction_addresses: Vec<Address>,
     source_text: RefCell<Option<String>>,
 }
 
 impl DisassembledRange {
-    pub fn line_num_by_address(&self, addr: Address) {
-        unimplemented!();
-    }
-
-    pub fn address_by_line_num(&self, line: u32) {
-        unimplemented!();
-    }
-
     pub fn handle(&self) -> Handle {
         self.handle
     }
 
-    fn get_source_text(&self) -> String {
-        unimplemented!();
+    pub fn source_name(&self) -> &str {
+        &self.source_name
+    }
 
-        // let source_location: Cow<str> = match self.start_sbaddr.line_entry() {
-        //     Some(le) => format!("{}:{}", le.file_spec().path(), le.line()).into(),
-        //     None => "unknown".into(),
-        // };
-        // let description: Cow<str> = match self.start_sbaddr.symbol() {
-        //     Some(symbol) => {
-        //         let mut descr = SBStream::new();
-        //         if symbol.get_description(&mut descr) {
-        //             match str::from_utf8(descr.data()) {
-        //                 Ok(s) => Some(s.to_owned().into()),
-        //                 Err(_) => None,
-        //             }
-        //         } else {
-        //             None
-        //         }
-        //     }
-        //     None => None,
-        // }.unwrap_or("No Symbol Info".into());
+    pub fn line_num_by_address(&self, load_addr: Address) -> u32 {
+        self.instruction_addresses.lower_bound(&load_addr) as u32 + 3
+    }
 
-        // let mut text = String::new();
-        // writeln!(text, "; {}", description);
-        // writeln!(text, "; Source location: {}", source_location);
+    pub fn address_by_line_num(&self, line: u32) -> Address {
+        self.instruction_addresses[line as usize - 3]
+    }
 
-        // const MAX_INSTR_BYTES: usize = 8;
-        // let mut instr_data = vec![];
-        // let mut dump = String::new();
-        // for instr in self.instructions.iter() {
-        //     let addr = instr.address().load_address(&self.target);
-        //     instr_data.resize(instr.byte_size(), 0);
-        //     instr.read_raw_data(0, &instr_data).unwrap();
-        //     dump.clear();
-        //     for (i, b) in instr_data.iter().enumerate() {
-        //         if i >= MAX_INSTR_BYTES {
-        //             write!(dump, ">");
-        //             break;
-        //         }
-        //         write!(dump, "{:02X}", b);
-        //     }
-        //     let mnemonic = instr.mnemonic();
-        //     let operands = instr.operands();
-        //     let comment = instr.comment();
-        //     let comment_sep = if comment.empty() { "" } else { "  ; " };
-        //     #[rustfmt_skip]
-        //     writeln!(text, "{:08X}: {:<dumpwidth$} {:<6} {}{}{}",
-        //         addr, dump, mnemonic, operands, comment_sep, comment,
-        //         dumpwidth=MAX_INSTR_BYTES * 3 + 2
-        //     );
-        // }
+    pub fn get_source_text(&self) -> String {
+        let source_location: Cow<str> = match self.start_addr.line_entry() {
+            Some(le) => format!("{}:{}", le.file_spec().path(), le.line()).into(),
+            None => "unknown".into(),
+        };
 
-        // text
+        let description: Cow<str> = match self.start_addr.symbol() {
+            Some(symbol) => {
+                let mut descr = SBStream::new();
+                if symbol.get_description(&mut descr) {
+                    match str::from_utf8(descr.data()) {
+                        Ok(s) => Some(s.to_owned().into()),
+                        Err(_) => None,
+                    }
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }.unwrap_or("No Symbol Info".into());
+
+        let mut text = String::new();
+        writeln!(text, "; {}", description);
+        writeln!(text, "; Source location: {}", source_location);
+
+        const MAX_INSTR_BYTES: usize = 8;
+        let mut instr_data = vec![];
+        let mut dump = String::new();
+        for instr in self.instructions.iter() {
+            let load_addr = instr.address().load_address(&self.target);
+            instr_data.resize(instr.byte_size(), 0);
+            instr.data(&self.target).read_raw_data(0, &mut instr_data).unwrap();
+            dump.clear();
+            for (i, b) in instr_data.iter().enumerate() {
+                if i >= MAX_INSTR_BYTES {
+                    write!(dump, ">");
+                    break;
+                }
+                write!(dump, "{:02X} ", b);
+            }
+            let mnemonic = instr.mnemonic(&self.target);
+            let operands = instr.operands(&self.target);
+            let comment = instr.comment(&self.target);
+            let comment_sep = if comment.is_empty() { "" } else { "  ; " };
+            #[rustfmt_skip]
+            writeln!(text, "{:08X}: {:<dumpwidth$} {:<6} {}{}{}",
+                load_addr, dump, mnemonic, operands, comment_sep, comment,
+                dumpwidth=MAX_INSTR_BYTES * 3 + 2
+            );
+        }
+
+        text
     }
 }

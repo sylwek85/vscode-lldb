@@ -2457,7 +2457,7 @@
 					"description": "The path of the source to be shown in the UI. It is only used to locate and load the content of the source if no sourceReference is specified (or its value is 0)."
 				},
 				"sourceReference": {
-					"type": "number",
+					"type": "integer",
 					"description": "If sourceReference > 0 the contents of the source must be retrieved through the SourceRequest (even if a path is specified). A sourceReference is only valid for a session, so it must not be used to persist a source."
 				},
 				"presentationHint": {
