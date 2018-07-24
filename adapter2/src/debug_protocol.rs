@@ -18,7 +18,7 @@ pub use raw_debug_protocol::{
     VariablesResponseBody,
 };
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum ProtocolMessage {
     #[serde(rename = "request")]
@@ -31,14 +31,14 @@ pub enum ProtocolMessage {
     Unknown(serde_json::Value),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Request {
     pub seq: u32,
     #[serde(flatten)]
     pub arguments: RequestArguments,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
     pub request_seq: u32,
     pub success: bool,
@@ -48,14 +48,14 @@ pub struct Response {
     pub body: Option<ResponseBody>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Event {
     pub seq: u32,
     #[serde(flatten)]
     pub body: EventBody,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "command", content = "arguments")]
 pub enum RequestArguments {
     initialize(InitializeRequestArguments),
@@ -86,7 +86,7 @@ pub enum RequestArguments {
     displaySettings(DisplaySettingsArguments),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "command", content = "body")]
 pub enum ResponseBody {
     Async,
@@ -118,7 +118,7 @@ pub enum ResponseBody {
     displaySettings,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "event", content = "body")]
 pub enum EventBody {
     initialized,
@@ -132,7 +132,7 @@ pub enum EventBody {
     terminated(TerminatedEventBody),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchRequestArguments {
     #[serde(rename = "noDebug")]
@@ -155,7 +155,7 @@ pub struct LaunchRequestArguments {
     pub display_settings: Option<DisplaySettingsArguments>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AttachRequestArguments {
     pub program: Option<String>,
@@ -173,7 +173,7 @@ pub struct AttachRequestArguments {
     pub display_settings: Option<DisplaySettingsArguments>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
     pub supports_configuration_done_request: bool,
@@ -188,7 +188,7 @@ pub struct Capabilities {
     pub supports_log_points: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DisplaySettingsArguments {
     pub show_disassembly: Option<ShowDisassembly>,
@@ -196,7 +196,7 @@ pub struct DisplaySettingsArguments {
     pub container_summary: Option<bool>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum ShowDisassembly {
     Always,
@@ -204,14 +204,14 @@ pub enum ShowDisassembly {
     Auto,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum Pid {
     Number(u32),
     String(String),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 #[serde(rename_all = "camelCase")]
 pub enum Terminal {
@@ -220,7 +220,7 @@ pub enum Terminal {
     Console,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 #[serde(rename_all = "camelCase")]
 pub enum Expressions {

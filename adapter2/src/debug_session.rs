@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use std::boxed::FnBox;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::option;
 use std::path::{self, Component, Path, PathBuf};
@@ -91,6 +91,7 @@ struct DebugSessionInner {
     breakpoints: HashMap<BreakpointID, BreakpointInfo>,
     var_refs: HandleTree<VarsScope>,
     disassembly: MustInitialize<disassembly::AddressSpace>,
+    known_threads: HashSet<ThreadID>,
     source_map: source_map::SourceMap,
     source_map_cache: HashMap<(Cow<'static, str>, Cow<'static, str>), Option<Rc<String>>>,
     show_disassembly: Option<bool>,
@@ -125,6 +126,7 @@ impl DebugSession {
             breakpoints: HashMap::new(),
             var_refs: HandleTree::new(),
             disassembly: NotInitialized,
+            known_threads: HashSet::new(),
             source_map: source_map::SourceMap::empty(),
             source_map_cache: HashMap::new(),
             show_disassembly: None,
@@ -135,9 +137,14 @@ impl DebugSession {
         // Dispatch incoming requests to inner.handle_message()
         let inner2 = inner.clone();
         let sink_to_inner = receiver_in
-            .for_each(move |msg| {
-                inner2.lock().unwrap().handle_message(msg);
-                Ok(())
+            .for_each(move |msg: ProtocolMessage| {
+                let inner2 = inner2.clone();
+                future::poll_fn(move || {
+                    let msg = msg.clone();
+                    blocking(|| {
+                        inner2.lock().unwrap().handle_message(msg);
+                    })
+                }).map_err(|_| ())
             })
             .then(|r| {
                 info!("### sink_to_inner resolved");
@@ -935,6 +942,7 @@ impl DebugSessionInner {
     }
 
     fn notify_process_stopped(&mut self, event: &SBProcessEvent) {
+        self.update_threads();
         // Find thread that has caused this stop
         let mut stopped_thread = None;
         // Check the currently selected thread first
@@ -989,6 +997,26 @@ impl DebugSessionInner {
             text: description,
             thread_id: stopped_thread.map(|t| t.thread_id() as i64),
         }));
+    }
+
+    // Notify VSCode about target threads that started or exited since the last stop.
+    fn update_threads(&mut self) {
+        let threads = self.process.threads().map(|t| t.thread_id()).collect::<HashSet<_>>();
+        let started = threads.difference(&self.known_threads).cloned().collect::<Vec<_>>();
+        let exited = self.known_threads.difference(&threads).cloned().collect::<Vec<_>>();
+        for tid in exited {
+            self.send_event(EventBody::thread(ThreadEventBody {
+                thread_id: tid as i64,
+                reason: "exited".to_owned(),
+            }));
+        }
+        for tid in started {
+            self.send_event(EventBody::thread(ThreadEventBody {
+                thread_id: tid as i64,
+                reason: "started".to_owned(),
+            }));
+        }
+        self.known_threads = threads;
     }
 
     fn map_filespec_to_local(&mut self, filespec: &SBFileSpec) -> Option<Rc<String>> {
