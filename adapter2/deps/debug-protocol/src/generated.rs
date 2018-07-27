@@ -596,13 +596,13 @@ pub struct EvaluateResponseBody {
         /// fetch them in chunks.
         #[serde(skip_serializing_if = "Option::is_none")]
         #[serde(rename = "indexedVariables")]
-        pub indexed_variables: Option<f64>,
+        pub indexed_variables: Option<i64>,
         /// The number of named child variables.
         /// The client can use this optional information to present the variables in a paged UI and
         /// fetch them in chunks.
         #[serde(skip_serializing_if = "Option::is_none")]
         #[serde(rename = "namedVariables")]
-        pub named_variables: Option<f64>,
+        pub named_variables: Option<i64>,
         /// Properties of a evaluate result that can be used to determine how to render the result in
         /// the UI.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -617,7 +617,7 @@ pub struct EvaluateResponseBody {
         /// If variablesReference is > 0, the evaluate result is structured and its children can be
         /// retrieved by passing variablesReference to the VariablesRequest.
         #[serde(rename = "variablesReference")]
-        pub variables_reference: f64,
+        pub variables_reference: i64,
 }
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 pub struct EvaluateResponse {

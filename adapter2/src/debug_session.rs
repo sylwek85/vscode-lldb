@@ -303,6 +303,9 @@ impl DebugSessionInner {
             RequestArguments::variables(args) =>
                 self.handle_variables(args)
                     .map(|r| ResponseBody::variables(r)),
+            RequestArguments::evaluate(args) =>
+                self.handle_evaluate(args)
+                    .map(|r| ResponseBody::evaluate(r)),
             RequestArguments::pause(args) =>
                 self.handle_pause(args)
                     .map(|_| ResponseBody::pause),
@@ -525,7 +528,7 @@ impl DebugSessionInner {
             self.source_map = source_map::SourceMap::new(iter)?;
         }
         launch_info.set_listener(&self.event_listener);
-        self.process = Initialized(self.target.launch(launch_info)?);
+        self.process = Initialized(self.target.launch(&launch_info)?);
         self.process_launched = true;
         Ok(ResponseBody::launch)
     }
@@ -802,6 +805,48 @@ impl DebugSessionInner {
         };
         // TODO: encoding
         value_str
+    }
+
+    fn handle_evaluate(&mut self, args: EvaluateArguments) -> Result<EvaluateResponseBody, Error> {
+        match args.context {
+            _ => {
+                let frame : Option<&SBFrame> = args.frame_id.map(|id| {
+                    let handle = handles::from_i64(id).unwrap();
+                    if let Some(VarsScope::StackFrame(ref frame)) = self.var_refs.get(handle) {
+                        frame
+                    } else {
+                        panic!("Invalid frameId");
+                    }
+                });
+                let result = self.execute_command_in_frame(&args.expression, frame);
+                let text = if result.succeeded() {
+                    result.output()
+                } else {
+                    result.error()
+                };
+                let response = EvaluateResponseBody {
+                    result: text.to_string_lossy().into_owned(),
+                    ..Default::default()
+                };
+                Ok(response)
+            }
+        }
+    }
+
+    fn evaluate_expr(&mut self, args: EvaluateArguments, expr: &str) -> Result<EvaluateResponseBody, Error> {
+        unimplemented!()
+    }
+
+    fn execute_command_in_frame(&self, command: &str, frame: Option<&SBFrame>) -> SBCommandReturnObject {
+        let context = match frame {
+            Some(frame) => SBExecutionContext::from_frame(&frame),
+            None => SBExecutionContext::new(),
+        };
+        let mut result = SBCommandReturnObject::new();
+        let interp = self.debugger.command_interpreter();
+        interp.handle_command_with_context(command, &context, &mut result, false);
+        // TODO: multiline
+        result
     }
 
     fn handle_pause(&mut self, args: PauseArguments) -> Result<(), Error> {

@@ -84,3 +84,16 @@ impl Default for StoppedEventBody {
         }
     }
 }
+
+impl Default for EvaluateResponseBody {
+    fn default() -> Self {
+        EvaluateResponseBody {
+            result: String::new(),
+            type_: None,
+            variables_reference: 0,
+            indexed_variables: None,
+            named_variables: None,
+            presentation_hint: None,
+        }
+    }
+}

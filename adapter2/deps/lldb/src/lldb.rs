@@ -172,6 +172,11 @@ impl SBDebugger {
             })
         })
     }
+    pub fn command_interpreter(&self) -> SBCommandInterpreter {
+        cpp!(unsafe [self as "SBDebugger*"] ->  SBCommandInterpreter as "SBCommandInterpreter" {
+            return self->GetCommandInterpreter();
+        })
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -240,11 +245,11 @@ impl SBTarget {
             return self->IsValid();
         })
     }
-    pub fn launch(&self, mut launch_info: SBLaunchInfo) -> Result<SBProcess, SBError> {
+    pub fn launch(&self, launch_info: &SBLaunchInfo) -> Result<SBProcess, SBError> {
         let mut error = SBError::new();
 
-        let process = cpp!(unsafe [self as "SBTarget*", mut launch_info as "SBLaunchInfo", mut error as "SBError"] -> SBProcess as "SBProcess" {
-            return self->Launch(launch_info, error);
+        let process = cpp!(unsafe [self as "SBTarget*", launch_info as "SBLaunchInfo*", mut error as "SBError"] -> SBProcess as "SBProcess" {
+            return self->Launch(*launch_info, error);
         });
         if error.success() {
             Ok(process)
@@ -271,8 +276,8 @@ impl SBTarget {
     }
     pub fn read_instructions(&self, base_addr: &SBAddress, count: u32) -> SBInstructionList {
         let base_addr = base_addr.clone();
-        cpp!(unsafe [self as "SBTarget*", base_addr as "SBAddress", count as "uint32_t"] -> SBInstructionList as "SBInstructionList" {
-            return self->ReadInstructions(base_addr, count);
+        cpp!(unsafe [self as "SBTarget*", base_addr as "SBAddress*", count as "uint32_t"] -> SBInstructionList as "SBInstructionList" {
+            return self->ReadInstructions(*base_addr, count);
         })
     }
 }
@@ -1385,5 +1390,154 @@ impl SBInstructionList {
     }
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = SBInstruction> + 'a {
         SBIterator::new(self.len() as u32, move |index| self.instruction_at_index(index))
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBCommandInterpreter as "SBCommandInterpreter");
+
+unsafe impl Send for SBCommandInterpreter {}
+
+impl SBCommandInterpreter {
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBCommandInterpreter*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
+    pub fn handle_command(
+        &self, command: &str, result: &mut SBCommandReturnObject, add_to_history: bool,
+    ) -> ReturnStatus {
+        with_cstr(command, |command| {
+            cpp!(unsafe [self as "SBCommandInterpreter*", command as "const char*",
+                         result as "SBCommandReturnObject*", add_to_history as "bool"] -> ReturnStatus as "ReturnStatus" {
+                return self->HandleCommand(command, *result, add_to_history);
+            })
+        })
+    }
+    pub fn handle_command_with_context(
+        &self, command: &str, context: &SBExecutionContext, result: &mut SBCommandReturnObject, add_to_history: bool,
+    ) -> ReturnStatus {
+        with_cstr(command, |command| {
+            cpp!(unsafe [self as "SBCommandInterpreter*", command as "const char*", context as "SBExecutionContext*",
+                         result as "SBCommandReturnObject*", add_to_history as "bool"] -> ReturnStatus as "ReturnStatus" {
+                return self->HandleCommand(command, *context, *result, add_to_history);
+            })
+        })
+    }
+}
+
+#[repr(u32)]
+pub enum ReturnStatus {
+    Invalid = 0,
+    SuccessFinishNoResult = 1,
+    SuccessFinishResult = 2,
+    SuccessContinuingNoResult = 3,
+    SuccessContinuingResult = 4,
+    Started = 5,
+    Failed = 6,
+    Quit = 7,
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBExecutionContext as "SBExecutionContext");
+
+unsafe impl Send for SBExecutionContext {}
+
+impl SBExecutionContext {
+    pub fn new() -> SBExecutionContext {
+        cpp!(unsafe [] -> SBExecutionContext as "SBExecutionContext" {
+            return SBExecutionContext();
+        })
+    }
+    pub fn from_target(target: &SBTarget) -> SBExecutionContext {
+        cpp!(unsafe [target as "SBTarget*"] -> SBExecutionContext as "SBExecutionContext" {
+            return SBExecutionContext(*target);
+        })
+    }
+    pub fn from_process(process: &SBProcess) -> SBExecutionContext {
+        cpp!(unsafe [process as "SBProcess*"] -> SBExecutionContext as "SBExecutionContext" {
+            return SBExecutionContext(*process);
+        })
+    }
+    pub fn from_thread(thread: &SBThread) -> SBExecutionContext {
+        cpp!(unsafe [thread as "SBThread*"] -> SBExecutionContext as "SBExecutionContext" {
+            return SBExecutionContext(*thread);
+        })
+    }
+    pub fn from_frame(frame: &SBFrame) -> SBExecutionContext {
+        cpp!(unsafe [frame as "SBFrame*"] -> SBExecutionContext as "SBExecutionContext" {
+            return SBExecutionContext(*frame);
+        })
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+cpp_class!(pub unsafe struct SBCommandReturnObject as "SBCommandReturnObject");
+
+unsafe impl Send for SBCommandReturnObject {}
+
+impl SBCommandReturnObject {
+    pub fn new() -> SBCommandReturnObject {
+        cpp!(unsafe [] -> SBCommandReturnObject as "SBCommandReturnObject" {
+            return SBCommandReturnObject();
+        })
+    }
+    pub fn is_valid(&self) -> bool {
+        cpp!(unsafe [self as "SBCommandReturnObject*"] -> bool as "bool" {
+            return self->IsValid();
+        })
+    }
+    pub fn clear(&self) {
+        cpp!(unsafe [self as "SBCommandReturnObject*"] {
+            return self->Clear();
+        })
+    }
+    pub fn status(&self) -> ReturnStatus {
+        cpp!(unsafe [self as "SBCommandReturnObject*"] -> ReturnStatus as "ReturnStatus" {
+            return self->GetStatus();
+        })
+    }
+    pub fn succeeded(&self) -> bool {
+        cpp!(unsafe [self as "SBCommandReturnObject*"] -> bool as "bool" {
+            return self->Succeeded();
+        })
+    }
+    pub fn has_result(&self) -> bool {
+        cpp!(unsafe [self as "SBCommandReturnObject*"] -> bool as "bool" {
+            return self->HasResult();
+        })
+    }
+    pub fn output_size(&self) -> usize {
+        cpp!(unsafe [self as "SBCommandReturnObject*"] -> usize as "size_t" {
+            return self->GetOutputSize();
+        })
+    }
+    pub fn error_size(&self) -> usize {
+        cpp!(unsafe [self as "SBCommandReturnObject*"] -> usize as "size_t" {
+            return self->GetErrorSize();
+        })
+    }
+    pub fn output(&self) -> &CStr {
+        let ptr = cpp!(unsafe [self as "SBCommandReturnObject*"] -> *const c_char as "const char*" {
+            return self->GetOutput();
+        });
+        if ptr.is_null() {
+            Default::default()
+        } else {
+            unsafe { CStr::from_ptr(ptr) }
+        }
+    }
+    pub fn error(&self) -> &CStr {
+        let ptr = cpp!(unsafe [self as "SBCommandReturnObject*"] -> *const c_char as "const char*" {
+            return self->GetError();
+        });
+        if ptr.is_null() {
+            Default::default()
+        } else {
+            unsafe { CStr::from_ptr(ptr) }
+        }
     }
 }

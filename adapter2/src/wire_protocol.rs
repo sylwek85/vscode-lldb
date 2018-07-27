@@ -83,8 +83,11 @@ impl codec::Encoder for Codec {
     fn encode(&mut self, message: ProtocolMessage, buffer: &mut BytesMut) -> Result<(), io::Error> {
         let message_bytes = serde_json::to_vec(&message).unwrap();
         debug!("tx: {}", str::from_utf8(&message_bytes).unwrap());
-        write!(buffer, "Content-Length: {}\r\n\r\n", message_bytes.len());
+
+        buffer.reserve(32 + message_bytes.len());
+        write!(buffer, "Content-Length: {}\r\n\r\n", message_bytes.len()).unwrap();
         buffer.extend_from_slice(&message_bytes);
+
         Ok(())
     }
 }

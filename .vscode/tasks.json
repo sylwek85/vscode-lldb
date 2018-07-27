@@ -70,8 +70,8 @@
     },
     {
       "type": "shell",
-      "label": "cargo expand my-lldb",
-      "command": "cargo expand --manifest-path=adapter2/deps/my-lldb/Cargo.toml >/tmp/expanded.rs",
+      "label": "cargo expand lldb",
+      "command": "cargo expand --manifest-path=adapter2/deps/lldb/Cargo.toml >/tmp/expanded.rs",
     }
   ]
 }
