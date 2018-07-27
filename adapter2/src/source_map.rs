@@ -1,4 +1,4 @@
-use error::Error;
+use crate::error::Error;
 use globset::*;
 use std::path::{Component, Path, PathBuf};
 

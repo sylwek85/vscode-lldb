@@ -6,7 +6,7 @@ use serde_json;
 
 use std::collections::HashMap as Map;
 
-pub use raw_debug_protocol::{
+pub use crate::raw_debug_protocol::{
     Breakpoint, BreakpointEventBody, CompletionsArguments, CompletionsResponseBody, ContinueArguments,
     ContinueResponseBody, ContinuedEventBody, DisconnectArguments, EvaluateArguments, EvaluateResponseBody,
     ExitedEventBody, InitializeRequestArguments, ModuleEventBody, NextArguments, OutputEventBody, PauseArguments,

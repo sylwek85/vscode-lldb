@@ -5,7 +5,7 @@ use std::fmt::Write;
 use std::rc::Rc;
 use std::str;
 
-use handles::Handle;
+use crate::handles::Handle;
 use lldb::*;
 use superslice::Ext;
 
@@ -176,7 +176,7 @@ impl DisassembledRange {
             let operands = instr.operands(&self.target);
             let comment = instr.comment(&self.target);
             let comment_sep = if comment.is_empty() { "" } else { "  ; " };
-            #[rustfmt_skip]
+            #[cfg_attr(rustfmt, rustfmt_skip)]
             writeln!(text, "{:08X}: {:<dumpwidth$} {:<6} {}{}{}",
                 load_addr, dump, mnemonic, operands, comment_sep, comment,
                 dumpwidth=MAX_INSTR_BYTES * 3 + 2

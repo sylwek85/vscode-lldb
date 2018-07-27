@@ -1,8 +1,8 @@
-#![allow(unused)]
+#![feature(rust_2018_preview)]
 #![feature(try_trait)]
 #![feature(fnbox)]
 #![feature(nll)]
-#![feature(custom_attribute)]
+#![allow(unused)]
 
 #[macro_use]
 extern crate serde_derive;
@@ -43,14 +43,14 @@ use tokio_threadpool::blocking;
 use lldb::*;
 
 mod cancellation;
+mod debug_protocol;
 mod debug_session;
+mod disassembly;
 mod error;
 mod handles;
 mod must_initialize;
 mod source_map;
 mod wire_protocol;
-mod disassembly;
-mod debug_protocol;
 
 fn main() {
     env_logger::init();

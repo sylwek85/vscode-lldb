@@ -5,7 +5,7 @@ use std::str;
 use tokio::io;
 use tokio_io::codec;
 
-use debug_protocol::ProtocolMessage;
+use crate::debug_protocol::ProtocolMessage;
 use serde_json::{self, Value};
 
 enum State {

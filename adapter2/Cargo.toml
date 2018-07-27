@@ -1,7 +1,10 @@
+cargo-features = ["edition"]
+
 [package]
 name = "codelldb2"
 version = "0.1.0"
 authors = ["Vadim Chugunov <vadimcn@gmail.com>"]
+edition = "2018"
 
 [dependencies]
 debug-protocol = { path = "deps/debug-protocol" }

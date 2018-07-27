@@ -23,14 +23,14 @@ use tokio;
 use tokio::prelude::*;
 use tokio_threadpool::blocking;
 
-use cancellation::{CancellationSource, CancellationToken};
-use debug_protocol::*;
-use disassembly;
-use error::Error;
-use handles::{self, Handle, HandleTree, VPath};
+use crate::cancellation::{CancellationSource, CancellationToken};
+use crate::debug_protocol::*;
+use crate::disassembly;
+use crate::error::Error;
+use crate::handles::{self, Handle, HandleTree, VPath};
+use crate::must_initialize::{Initialized, MustInitialize, NotInitialized};
+use crate::source_map;
 use lldb::*;
-use must_initialize::{Initialized, MustInitialize, NotInitialized};
-use source_map;
 
 type AsyncResponder = FnBox(&mut DebugSessionInner) -> Result<ResponseBody, Error>;
 
@@ -256,7 +256,7 @@ impl DebugSessionInner {
 
     fn handle_request(&mut self, request: Request) {
         //info!("Received message: {:?}", request);
-        #[rustfmt_skip]
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let result = match request.arguments {
             RequestArguments::initialize(args) =>
                 self.handle_initialize(args)
@@ -810,7 +810,7 @@ impl DebugSessionInner {
     fn handle_evaluate(&mut self, args: EvaluateArguments) -> Result<EvaluateResponseBody, Error> {
         match args.context {
             _ => {
-                let frame : Option<&SBFrame> = args.frame_id.map(|id| {
+                let frame: Option<&SBFrame> = args.frame_id.map(|id| {
                     let handle = handles::from_i64(id).unwrap();
                     if let Some(VarsScope::StackFrame(ref frame)) = self.var_refs.get(handle) {
                         frame
