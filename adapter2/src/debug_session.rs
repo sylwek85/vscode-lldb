@@ -71,6 +71,12 @@ enum VarsScope {
     Container(SBValue),
 }
 
+enum ExprType {
+    Native,
+    Python,
+    Simple,
+}
+
 #[derive(PartialOrd, Ord, PartialEq, Eq)]
 struct Key<'a> {
     first: Cow<'a, str>,
@@ -145,8 +151,7 @@ impl DebugSession {
                         inner2.lock().unwrap().handle_message(msg);
                     })
                 }).map_err(|_| ())
-            })
-            .then(|r| {
+            }).then(|r| {
                 info!("### sink_to_inner resolved");
                 r
             });
@@ -173,8 +178,7 @@ impl DebugSession {
             .for_each(move |event| {
                 inner2.lock().unwrap().handle_debug_event(event);
                 Ok(())
-            })
-            .then(|r| {
+            }).then(|r| {
                 info!("### event_listener_to_inner resolved");
                 r
             });
@@ -808,45 +812,79 @@ impl DebugSessionInner {
     }
 
     fn handle_evaluate(&mut self, args: EvaluateArguments) -> Result<EvaluateResponseBody, Error> {
-        match args.context {
-            _ => {
-                let frame: Option<&SBFrame> = args.frame_id.map(|id| {
-                    let handle = handles::from_i64(id).unwrap();
-                    if let Some(VarsScope::StackFrame(ref frame)) = self.var_refs.get(handle) {
-                        frame
-                    } else {
-                        panic!("Invalid frameId");
-                    }
-                });
-                let result = self.execute_command_in_frame(&args.expression, frame);
-                let text = if result.succeeded() {
-                    result.output()
-                } else {
-                    result.error()
-                };
-                let response = EvaluateResponseBody {
-                    result: text.to_string_lossy().into_owned(),
-                    ..Default::default()
-                };
-                Ok(response)
+        let frame: Option<&SBFrame> = args.frame_id.map(|id| {
+            let handle = handles::from_i64(id).unwrap();
+            if let Some(VarsScope::StackFrame(ref frame)) = self.var_refs.get(handle) {
+                frame
+            } else {
+                panic!("Invalid frameId");
+            }
+        });
+
+        let context = args.context.as_ref().map(|s| s.as_str());
+        if let Some("repl") = context {
+            if !args.expression.starts_with("?") {
+                return self.execute_command(&args.expression, frame);
             }
         }
-    }
-
-    fn evaluate_expr(&mut self, args: EvaluateArguments, expr: &str) -> Result<EvaluateResponseBody, Error> {
         unimplemented!()
     }
 
-    fn execute_command_in_frame(&self, command: &str, frame: Option<&SBFrame>) -> SBCommandReturnObject {
+    // Evaluates expr in the context of frame (or in global context if frame is None)
+    // Returns expressions.Value or SBValue on success, SBError on failure.
+    fn evaluate_expr_in_frame(&self, expr: &str, frame: Option<&SBFrame>) -> Result<SBValue, SBError> {
+        let (expr, ty) = self.get_expression_type(expr);
+        match ty {
+            ExprType::Native => {
+                let result = match frame {
+                    Some(frame) => frame.evaluate_expression(expr),
+                    None => self.target.evaluate_expression(expr),
+                };
+                let error = result.error();
+                if error.success() {
+                    Ok(result)
+                } else {
+                    Err(error)
+                }
+            }
+            ExprType::Python | ExprType::Simple => unimplemented!(),
+        }
+    }
+
+    // Classify expression by evaluator type
+    fn get_expression_type(&self, expr: &'a str) -> (&'a str, ExprType) {
+        if expr.starts_with("/nat ") {
+            (&expr[5..], ExprType::Native)
+        } else if expr.starts_with("/py ") {
+            (&expr[4..], ExprType::Python)
+        } else if expr.starts_with("/se ") {
+            (&expr[4..], ExprType::Simple)
+        } else {
+            // TODO: expressions config
+            (expr, ExprType::Simple)
+        }
+    }
+
+    fn execute_command(&self, command: &str, frame: Option<&SBFrame>) -> Result<EvaluateResponseBody, Error> {
         let context = match frame {
             Some(frame) => SBExecutionContext::from_frame(&frame),
-            None => SBExecutionContext::new(),
+            None => SBExecutionContext::from_process(&self.process),
         };
         let mut result = SBCommandReturnObject::new();
         let interp = self.debugger.command_interpreter();
         interp.handle_command_with_context(command, &context, &mut result, false);
         // TODO: multiline
-        result
+
+        let text = if result.succeeded() {
+            result.output()
+        } else {
+            result.error()
+        };
+        let response = EvaluateResponseBody {
+            result: text.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        Ok(response)
     }
 
     fn handle_pause(&mut self, args: PauseArguments) -> Result<(), Error> {

@@ -280,6 +280,13 @@ impl SBTarget {
             return self->ReadInstructions(*base_addr, count);
         })
     }
+    pub fn evaluate_expression(&self, expr: &str) -> SBValue {
+        with_cstr(expr, |expr| {
+            cpp!(unsafe [self as "SBTarget*", expr as "const char*"] -> SBValue as "SBValue" {
+                return self->EvaluateExpression(expr);
+            })
+        })
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -846,6 +853,13 @@ impl SBFrame {
             return self->GetVariables(arguments, locals, statics, in_scope_only, (lldb::DynamicValueType)use_dynamic);
         })
     }
+    pub fn evaluate_expression(&self, expr: &str) -> SBValue {
+        with_cstr(expr, |expr| {
+            cpp!(unsafe [self as "SBFrame*", expr as "const char*"] -> SBValue as "SBValue" {
+                return self->EvaluateExpression(expr);
+            })
+        })
+    }
     pub fn registers(&self) -> SBValueList {
         cpp!(unsafe [self as "SBFrame*"] -> SBValueList as "SBValueList" {
             return self->GetRegisters();
@@ -1111,6 +1125,11 @@ impl SBValue {
     pub fn is_valid(&self) -> bool {
         cpp!(unsafe [self as "SBValue*"] -> bool as "bool" {
             return self->IsValid();
+        })
+    }
+    pub fn error(&self) -> SBError {
+        cpp!(unsafe [self as "SBValue*"] -> SBError as "SBError" {
+            return self->GetError();
         })
     }
     pub fn name(&self) -> Option<&str> {
