@@ -49,6 +49,7 @@ mod disassembly;
 mod error;
 mod handles;
 mod must_initialize;
+mod python;
 mod source_map;
 mod wire_protocol;
 
@@ -65,8 +66,7 @@ fn main() {
         .map_err(|err| {
             error!("accept error: {:?}", err);
             panic!()
-        })
-        .take(1)
+        }).take(1)
         .for_each(|conn| {
             conn.set_nodelay(true);
             let (to_client, from_client) = wire_protocol::Codec::new().framed(conn).split();
@@ -87,8 +87,7 @@ fn main() {
                 });
 
             session_to_client
-        })
-        .then(|r| {
+        }).then(|r| {
             info!("### server resolved {:?}", r);
             Ok(())
         });

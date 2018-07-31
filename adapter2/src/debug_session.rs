@@ -29,6 +29,7 @@ use crate::disassembly;
 use crate::error::Error;
 use crate::handles::{self, Handle, HandleTree, VPath};
 use crate::must_initialize::{Initialized, MustInitialize, NotInitialized};
+use crate::python;
 use crate::source_map;
 use lldb::*;
 
@@ -151,8 +152,7 @@ impl DebugSession {
                         inner2.lock().unwrap().handle_message(msg);
                     })
                 }).map_err(|_| ())
-            })
-            .then(|r| {
+            }).then(|r| {
                 info!("### sink_to_inner resolved");
                 r
             });
@@ -179,8 +179,7 @@ impl DebugSession {
             .for_each(move |event| {
                 inner2.lock().unwrap().handle_debug_event(event);
                 Ok(())
-            })
-            .then(|r| {
+            }).then(|r| {
                 info!("### event_listener_to_inner resolved");
                 r
             });
@@ -377,6 +376,7 @@ impl DebugSessionInner {
     fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<Capabilities, Error> {
         self.debugger = Initialized(SBDebugger::create(false));
         self.debugger.set_async(true);
+        python::initialize(&self.debugger.command_interpreter());
 
         let caps = Capabilities {
             supports_configuration_done_request: true,
@@ -867,8 +867,9 @@ impl DebugSessionInner {
                 }
             }
             ExprType::Python => {
-                let command = format!("script codelldb2.evaluate('{}')", "");
-                let result = self.execute_command_in_frame(&command, frame);
+                let interpreter = self.debugger.command_interpreter();
+                let context = self.context_from_frame(frame);
+                let result = python::evaluate(&interpreter, &expr, &context);
                 unimplemented!()
             }
             ExprType::Simple => unimplemented!(),
@@ -890,18 +891,22 @@ impl DebugSessionInner {
     }
 
     fn execute_command_in_frame(&self, command: &str, frame: Option<&SBFrame>) -> SBCommandReturnObject {
-        let context = match frame {
-            Some(frame) => SBExecutionContext::from_frame(&frame),
-            None => match self.process {
-                Initialized(ref process) => SBExecutionContext::from_process(&process),
-                NotInitialized => SBExecutionContext::new(),
-            },
-        };
+        let context = self.context_from_frame(frame);
         let mut result = SBCommandReturnObject::new();
         let interp = self.debugger.command_interpreter();
         interp.handle_command_with_context(command, &context, &mut result, false);
         // TODO: multiline
         result
+    }
+
+    fn context_from_frame(&self, frame: Option<&SBFrame>) -> SBExecutionContext {
+        match frame {
+            Some(frame) => SBExecutionContext::from_frame(&frame),
+            None => match self.process {
+                Initialized(ref process) => SBExecutionContext::from_process(&process),
+                NotInitialized => SBExecutionContext::new(),
+            },
+        }
     }
 
     fn handle_pause(&mut self, args: PauseArguments) -> Result<(), Error> {
