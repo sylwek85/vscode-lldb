@@ -71,6 +71,21 @@ where
     String::from_utf8(buffer).unwrap()
 }
 
+fn debug_descr<CPP>(f: &mut fmt::Formatter, cpp: CPP) -> fmt::Result
+where
+    CPP: FnOnce(&mut SBStream) -> bool,
+{
+    let mut descr = SBStream::new();
+    if cpp(&mut descr) {
+        match str::from_utf8(descr.data()) {
+            Ok(s) => f.write_str(s),
+            Err(_) => Err(fmt::Error),
+        }
+    } else {
+        Ok(())
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
 struct SBIterator<Item, GetItem>
@@ -215,21 +230,19 @@ impl SBError {
     }
 }
 
-impl fmt::Display for SBError {
+impl fmt::Debug for SBError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(self.message())
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBError*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
+        })
     }
 }
 
-impl fmt::Debug for SBError {
+impl fmt::Display for SBError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if !self.is_valid() {
-            f.write_str("Invalid")
-        } else if self.success() {
-            f.write_str("Success")
-        } else {
-            write!(f, "Failure({})", self.message())
-        }
+        f.write_str(self.message())
     }
 }
 
@@ -396,11 +409,6 @@ impl SBEvent {
             }
         }
     }
-    pub fn get_description(&self, description: &mut SBStream) -> bool {
-        cpp!(unsafe [self as "SBEvent*", description as "SBStream*"] -> bool as "bool" {
-            return self->GetDescription(*description);
-        })
-    }
     pub fn flags(&self) -> u32 {
         cpp!(unsafe [self as "SBEvent*"] -> u32 as "uint32_t" {
             return self->GetType();
@@ -430,15 +438,11 @@ impl SBEvent {
 
 impl fmt::Debug for SBEvent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut descr = SBStream::new();
-        if self.get_description(&mut descr) {
-            match str::from_utf8(descr.data()) {
-                Ok(s) => f.write_str(s),
-                Err(_) => Err(fmt::Error),
-            }
-        } else {
-            Ok(())
-        }
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBEvent*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
+        })
     }
 }
 
@@ -882,6 +886,16 @@ impl SBFrame {
     }
 }
 
+impl fmt::Debug for SBFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBFrame*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
+        })
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct VariableOptions {
     pub arguments: bool,
@@ -936,6 +950,16 @@ impl SBBreakpoint {
     }
 }
 
+impl fmt::Debug for SBBreakpoint {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBBreakpoint*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
+        })
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
 cpp_class!(pub unsafe struct SBBreakpointLocation as "SBBreakpointLocation");
@@ -971,6 +995,16 @@ impl SBBreakpointLocation {
     pub fn set_enabled(&self, enabled: bool) {
         cpp!(unsafe [self as "SBBreakpointLocation*", enabled as "bool"] {
             self->SetEnabled(enabled);
+        })
+    }
+}
+
+impl fmt::Debug for SBBreakpointLocation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBBreakpointLocation*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr, eDescriptionLevelFull);
+            })
         })
     }
 }
@@ -1031,15 +1065,11 @@ impl SBAddress {
 
 impl fmt::Debug for SBAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut descr = SBStream::new();
-        if self.get_description(&mut descr) {
-            match str::from_utf8(descr.data()) {
-                Ok(s) => f.write_str(s),
-                Err(_) => Err(fmt::Error),
-            }
-        } else {
-            Ok(())
-        }
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBAddress*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
+        })
     }
 }
 
@@ -1082,6 +1112,16 @@ impl SBLineEntry {
     }
 }
 
+impl fmt::Debug for SBLineEntry {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBLineEntry*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
+        })
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
 cpp_class!(pub unsafe struct SBFileSpec as "SBFileSpec");
@@ -1111,6 +1151,16 @@ impl SBFileSpec {
             cpp!(unsafe [self as "SBFileSpec*", ptr as "char*", size as "size_t"] -> u32 as "uint32_t" {
                 return self->GetPath(ptr, size);
             }) as usize
+        })
+    }
+}
+
+impl fmt::Debug for SBFileSpec {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBFileSpec*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
         })
     }
 }
@@ -1204,6 +1254,16 @@ impl SBValue {
     }
     pub fn children<'a>(&'a self) -> impl Iterator<Item = SBValue> + 'a {
         SBIterator::new(self.num_children(), move |index| self.child_at_index(index))
+    }
+}
+
+impl fmt::Debug for SBValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBValue*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
+        })
     }
 }
 
@@ -1352,6 +1412,16 @@ impl SBInstruction {
     }
 }
 
+impl fmt::Debug for SBInstruction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBInstruction*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
+        })
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
 cpp_class!(pub unsafe struct SBData as "SBData");
@@ -1382,6 +1452,16 @@ impl SBData {
         } else {
             Err(error)
         }
+    }
+}
+
+impl fmt::Debug for SBData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBData*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
+        })
     }
 }
 
@@ -1558,5 +1638,15 @@ impl SBCommandReturnObject {
         } else {
             unsafe { CStr::from_ptr(ptr) }
         }
+    }
+}
+
+impl fmt::Debug for SBCommandReturnObject {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBCommandReturnObject*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
+        })
     }
 }

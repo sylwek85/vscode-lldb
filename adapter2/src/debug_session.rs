@@ -151,7 +151,8 @@ impl DebugSession {
                         inner2.lock().unwrap().handle_message(msg);
                     })
                 }).map_err(|_| ())
-            }).then(|r| {
+            })
+            .then(|r| {
                 info!("### sink_to_inner resolved");
                 r
             });
@@ -178,7 +179,8 @@ impl DebugSession {
             .for_each(move |event| {
                 inner2.lock().unwrap().handle_debug_event(event);
                 Ok(())
-            }).then(|r| {
+            })
+            .then(|r| {
                 info!("### event_listener_to_inner resolved");
                 r
             });
@@ -822,11 +824,28 @@ impl DebugSessionInner {
         });
 
         let context = args.context.as_ref().map(|s| s.as_str());
+        let mut expression: &str = &args.expression;
+
         if let Some("repl") = context {
-            if !args.expression.starts_with("?") {
-                return self.execute_command(&args.expression, frame);
+            if !expression.starts_with("?") {
+                // LLDB command
+                let result = self.execute_command_in_frame(expression, frame);
+                let text = if result.succeeded() {
+                    result.output()
+                } else {
+                    result.error()
+                };
+                let response = EvaluateResponseBody {
+                    result: text.to_string_lossy().into_owned(),
+                    ..Default::default()
+                };
+                return Ok(response);
+            } else {
+                expression = &expression[1..]; // drop '?'
             }
         }
+        // Expression
+        self.evaluate_expr_in_frame(expression, frame);
         unimplemented!()
     }
 
@@ -847,7 +866,12 @@ impl DebugSessionInner {
                     Err(error)
                 }
             }
-            ExprType::Python | ExprType::Simple => unimplemented!(),
+            ExprType::Python => {
+                let command = format!("script codelldb2.evaluate('{}')", "");
+                let result = self.execute_command_in_frame(&command, frame);
+                unimplemented!()
+            }
+            ExprType::Simple => unimplemented!(),
         }
     }
 
@@ -865,26 +889,19 @@ impl DebugSessionInner {
         }
     }
 
-    fn execute_command(&self, command: &str, frame: Option<&SBFrame>) -> Result<EvaluateResponseBody, Error> {
+    fn execute_command_in_frame(&self, command: &str, frame: Option<&SBFrame>) -> SBCommandReturnObject {
         let context = match frame {
             Some(frame) => SBExecutionContext::from_frame(&frame),
-            None => SBExecutionContext::from_process(&self.process),
+            None => match self.process {
+                Initialized(ref process) => SBExecutionContext::from_process(&process),
+                NotInitialized => SBExecutionContext::new(),
+            },
         };
         let mut result = SBCommandReturnObject::new();
         let interp = self.debugger.command_interpreter();
         interp.handle_command_with_context(command, &context, &mut result, false);
         // TODO: multiline
-
-        let text = if result.succeeded() {
-            result.output()
-        } else {
-            result.error()
-        };
-        let response = EvaluateResponseBody {
-            result: text.to_string_lossy().into_owned(),
-            ..Default::default()
-        };
-        Ok(response)
+        result
     }
 
     fn handle_pause(&mut self, args: PauseArguments) -> Result<(), Error> {
