@@ -17,9 +17,10 @@ cpp!{{
     using namespace lldb;
 }}
 
+pub type Address = u64;
 pub type ThreadID = u64;
 pub type BreakpointID = u32;
-pub type Address = u64;
+pub type UserID = u64;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -475,7 +476,7 @@ impl<'a> SBProcessEvent<'a> {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 #[repr(u32)]
 pub enum ProcessState {
     Invalid = 0,
@@ -773,7 +774,7 @@ impl SBThread {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 #[repr(u32)]
 pub enum StopReason {
     Invalid = 0,
@@ -893,7 +894,7 @@ impl fmt::Debug for SBFrame {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct VariableOptions {
     pub arguments: bool,
     pub locals: bool,
@@ -902,7 +903,7 @@ pub struct VariableOptions {
     pub use_dynamic: DynamicValueType,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 #[repr(u32)]
 pub enum DynamicValueType {
     NoDynamicValues = 0,
@@ -922,8 +923,8 @@ impl SBBreakpoint {
             return self->IsValid();
         })
     }
-    pub fn id(&self) -> u32 {
-        cpp!(unsafe [self as "SBBreakpoint*"] -> BreakpointID as "uint32_t" {
+    pub fn id(&self) -> BreakpointID {
+        cpp!(unsafe [self as "SBBreakpoint*"] -> BreakpointID as "break_id_t" {
             return self->GetID();
         })
     }
@@ -969,8 +970,8 @@ impl SBBreakpointLocation {
             return self->IsValid();
         })
     }
-    pub fn id(&self) -> u32 {
-        cpp!(unsafe [self as "SBBreakpointLocation*"] -> BreakpointID as "uint32_t" {
+    pub fn id(&self) -> BreakpointID {
+        cpp!(unsafe [self as "SBBreakpointLocation*"] -> BreakpointID as "break_id_t" {
             return self->GetID();
         })
     }
@@ -1174,6 +1175,11 @@ impl SBValue {
             return self->IsValid();
         })
     }
+    pub fn id(&self) -> UserID {
+        cpp!(unsafe [self as "SBValue*"] -> UserID as "user_id_t" {
+            return self->GetID();
+        })
+    }
     pub fn error(&self) -> SBError {
         cpp!(unsafe [self as "SBValue*"] -> SBError as "SBError" {
             return self->GetError();
@@ -1274,7 +1280,7 @@ impl fmt::Debug for SBValue {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 #[repr(u32)]
 pub enum ValueType {
     Invalid = 0,
@@ -1533,6 +1539,7 @@ impl SBCommandInterpreter {
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 #[repr(u32)]
 pub enum ReturnStatus {
     Invalid = 0,

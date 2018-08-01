@@ -738,6 +738,7 @@ impl DebugSessionInner {
                         vpath_to_eval_name(container_vpath)
                     } else {
                         // Registers are addressed directly by name, without parent reference.
+                        // TODO: Look at the actual container type.
                         String::new()
                     };
                     let var = var.clone();
@@ -790,7 +791,8 @@ impl DebugSessionInner {
                 let variable = Variable {
                     name: name.to_owned(),
                     value: value,
-                    type_: dtype.map(|v| v.to_owned()),
+                    type_: Some(format!("id={} valtype={:?}", var.id(), var.value_type())),
+                    //type_: dtype.map(|v| v.to_owned()),
                     variables_reference: handles::to_i64(handle),
                     evaluate_name: Some(compose_eval_name(container_eval_name.clone(), name)),
                     ..Default::default()
