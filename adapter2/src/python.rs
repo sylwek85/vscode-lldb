@@ -1,9 +1,12 @@
-use crate::debug_session::Evaluated;
-use crate::lldb::*;
-use crate::must_initialize::*;
 use std::mem;
 use std::os::raw::{c_int, c_ulong, c_void};
 use std::slice;
+
+use regex;
+
+use crate::debug_session::Evaluated;
+use crate::lldb::*;
+use crate::must_initialize::*;
 
 pub fn initialize(interpreter: &SBCommandInterpreter) {
     let mut command_result = SBCommandReturnObject::new();

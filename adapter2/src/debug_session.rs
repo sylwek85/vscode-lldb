@@ -12,6 +12,7 @@ use std::mem;
 use std::option;
 use std::path::{self, Component, Path, PathBuf};
 use std::rc::Rc;
+use std::str;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -152,8 +153,7 @@ impl DebugSession {
                         inner2.lock().unwrap().handle_message(msg);
                     })
                 }).map_err(|_| ())
-            })
-            .then(|r| {
+            }).then(|r| {
                 info!("### sink_to_inner resolved");
                 r
             });
@@ -180,8 +180,7 @@ impl DebugSession {
             .for_each(move |event| {
                 inner2.lock().unwrap().handle_debug_event(event);
                 Ok(())
-            })
-            .then(|r| {
+            }).then(|r| {
                 info!("### event_listener_to_inner resolved");
                 r
             });
@@ -580,7 +579,9 @@ impl DebugSessionInner {
                 break;
             }
 
-            let handle = self.var_refs.create(None, "", VarsScope::StackFrame(frame.clone()));
+            let handle = self
+                .var_refs
+                .create(None, "[frame]", VarsScope::StackFrame(frame.clone()));
             let mut stack_frame: StackFrame = Default::default();
 
             stack_frame.id = handle.get() as i64;
@@ -703,7 +704,7 @@ impl DebugSessionInner {
                         use_dynamic: DynamicValueType::NoDynamicValues,
                     });
                     let mut vars_iter = ret_val.into_iter().chain(variables.iter());
-                    self.convert_scope_values(&mut vars_iter, Some(container_handle))
+                    self.convert_scope_values(&mut vars_iter, String::new(), Some(container_handle))
                 }
                 VarsScope::Statics(frame) => {
                     let variables = frame.variables(&VariableOptions {
@@ -714,7 +715,7 @@ impl DebugSessionInner {
                         use_dynamic: DynamicValueType::NoDynamicValues,
                     });
                     let mut vars_iter = variables.iter().filter(|v| v.value_type() != ValueType::VariableStatic);
-                    self.convert_scope_values(&mut vars_iter, Some(container_handle))
+                    self.convert_scope_values(&mut vars_iter, String::new(), Some(container_handle))
                 }
                 VarsScope::Globals(frame) => {
                     let variables = frame.variables(&VariableOptions {
@@ -725,19 +726,44 @@ impl DebugSessionInner {
                         use_dynamic: DynamicValueType::NoDynamicValues,
                     });
                     let mut vars_iter = variables.iter(); //.filter(|v| v.value_type() != ValueType::VariableGlobal);
-                    self.convert_scope_values(&mut vars_iter, Some(container_handle))
+                    self.convert_scope_values(&mut vars_iter, String::new(), Some(container_handle))
                 }
                 VarsScope::Registers(frame) => {
                     let list = frame.registers();
                     let mut vars_iter = list.iter();
-                    self.convert_scope_values(&mut vars_iter, Some(container_handle))
+                    self.convert_scope_values(&mut vars_iter, String::new(), Some(container_handle))
                 }
-                VarsScope::Container(v) => {
-                    let v = v.clone();
-                    let mut vars_iter = v.children();
-                    self.convert_scope_values(&mut vars_iter, Some(container_handle))
+                VarsScope::Container(var) => {
+                    let container_eval_name = if var.value_type() != ValueType::RegisterSet {
+                        vpath_to_eval_name(container_vpath)
+                    } else {
+                        // Registers are addressed directly by name, without parent reference.
+                        String::new()
+                    };
+                    let var = var.clone();
+                    let mut vars_iter = var.children();
+                    let mut variables =
+                        self.convert_scope_values(&mut vars_iter, container_eval_name, Some(container_handle));
+                    if var.is_synthetic() {
+                        let raw_var = var.non_synthetic_value();
+                        let mut stm = SBStream::new();
+                        raw_var.get_expression_path(&mut stm);
+                        let path = str::from_utf8(stm.data()).unwrap();
+                        let handle =
+                            self.var_refs
+                                .create(Some(container_handle), "[raw]", VarsScope::Container(raw_var));
+                        let raw = Variable {
+                            name: "[raw]".to_owned(),
+                            value: var.type_name().unwrap_or_default().to_owned(),
+                            variables_reference: handles::to_i64(Some(handle)),
+                            evaluate_name: Some(format!("/nat {}", path)),
+                            ..Default::default()
+                        };
+                        variables.push(raw);
+                    }
+                    variables
                 }
-                _ => vec![],
+                VarsScope::StackFrame(_) => vec![],
             };
             Ok(VariablesResponseBody { variables: variables })
         } else {
@@ -749,22 +775,34 @@ impl DebugSessionInner {
     }
 
     fn convert_scope_values(
-        &mut self, vars_iter: &mut Iterator<Item = SBValue>, container_handle: Option<Handle>,
+        &mut self, vars_iter: &mut Iterator<Item = SBValue>, container_eval_name: String,
+        container_handle: Option<Handle>,
     ) -> Vec<Variable> {
         // TODO: [raw], evaluateName
         let mut variables = vec![];
+        let mut variables_idx = HashMap::new();
         for var in vars_iter {
             if let Some(name) = var.name() {
                 let dtype = var.type_name();
-                let handle = self.get_var_handle(container_handle, name, &var);
                 let value = self.get_var_value_str(&var, container_handle.is_some());
-                variables.push(Variable {
+                let handle = self.get_var_handle(container_handle, name, &var);
+
+                let variable = Variable {
                     name: name.to_owned(),
                     value: value,
                     type_: dtype.map(|v| v.to_owned()),
                     variables_reference: handles::to_i64(handle),
+                    evaluate_name: Some(compose_eval_name(container_eval_name.clone(), name)),
                     ..Default::default()
-                });
+                };
+
+                // Ensure proper shadowing
+                if let Some(idx) = variables_idx.get(&variable.name) {
+                    variables[*idx] = variable;
+                } else {
+                    variables_idx.insert(variable.name.clone(), variables.len());
+                    variables.push(variable);
+                }
             } else {
                 error!(
                     "Dropped value {:?} {}",
@@ -1173,4 +1211,30 @@ impl DebugSessionInner {
             }
         }
     }
+}
+
+fn vpath_to_eval_name(vpath: &VPath) -> String {
+    let mut stack = vec![];
+    let mut curr = Some(vpath.clone());
+    while let Some(vpath) = curr {
+        stack.push(vpath.clone());
+        curr = (vpath.0).0.clone();
+    }
+    let mut name = String::new();
+    for vpath in stack.iter().rev().skip(2) {
+        name = compose_eval_name(name, &(vpath.0).1)
+    }
+    name
+}
+
+fn compose_eval_name(mut prefix: String, suffix: &str) -> String {
+    if prefix.is_empty() {
+        prefix = suffix.to_owned();
+    } else if suffix.starts_with("[") {
+        prefix.push_str(suffix);
+    } else {
+        prefix.push_str(".");
+        prefix.push_str(suffix);
+    }
+    prefix
 }

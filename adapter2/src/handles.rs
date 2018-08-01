@@ -9,7 +9,7 @@ pub type Handle = NonZeroU32;
 pub fn to_i64(h: Option<Handle>) -> i64 {
     match h {
         None => 0,
-        Some(v) => v.get() as i64
+        Some(v) => v.get() as i64,
     }
 }
 
@@ -18,14 +18,14 @@ pub fn from_i64(v: i64) -> Option<Handle> {
 }
 
 #[derive(PartialEq, Eq, Hash, Clone)]
-pub struct VPath(Rc<(String, Option<VPath>)>);
+pub struct VPath(pub Rc<(Option<VPath>, String)>);
 
 impl VPath {
     pub fn new(key: &str) -> VPath {
-        VPath(Rc::new((key.to_owned(), None)))
+        VPath(Rc::new((None, key.to_owned())))
     }
     pub fn extend(&self, key: &str) -> VPath {
-        VPath(Rc::new((key.to_owned(), Some(self.clone()))))
+        VPath(Rc::new((Some(self.clone()), key.to_owned())))
     }
 }
 

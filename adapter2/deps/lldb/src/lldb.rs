@@ -1252,6 +1252,16 @@ impl SBValue {
     pub fn children<'a>(&'a self) -> impl Iterator<Item = SBValue> + 'a {
         SBIterator::new(self.num_children(), move |index| self.child_at_index(index))
     }
+    pub fn get_expression_path(&self, path: &mut SBStream) -> bool {
+        cpp!(unsafe [self as "SBValue*", path as "SBStream*"] -> bool as "bool" {
+            return self->GetExpressionPath(*path);
+        })
+    }
+    pub fn non_synthetic_value(&self) -> SBValue {
+        cpp!(unsafe [self as "SBValue*"] ->  SBValue as "SBValue"  {
+            return self->GetNonSyntheticValue();
+        })
+    }
 }
 
 impl fmt::Debug for SBValue {
