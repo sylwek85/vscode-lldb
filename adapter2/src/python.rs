@@ -1,3 +1,4 @@
+use crate::debug_session::Evaluated;
 use crate::lldb::*;
 use crate::must_initialize::*;
 use std::mem;
@@ -11,20 +12,21 @@ pub fn initialize(interpreter: &SBCommandInterpreter) {
     info!("{:?}", command_result);
 }
 
+type EvalResult = Result<Evaluated, String>;
+
 pub fn evaluate(
-    interpreter: &SBCommandInterpreter, script: &str, context: &SBExecutionContext,
-) -> Result<PythonValue, String> {
-    type EvalResult = Result<PythonValue, String>;
-    extern "C" fn callback(result_ptr: *mut EvalResult, ty: c_int, data: *const c_void, len: usize) {
+    interpreter: &SBCommandInterpreter, script: &str, simple_expr: bool, context: &SBExecutionContext,
+) -> EvalResult {
+    extern "C" fn callback(ty: c_int, data: *const c_void, len: usize, result_ptr: *mut EvalResult) {
         unsafe {
             *result_ptr = match ty {
                 1 => {
                     let sbvalue = data as *const SBValue;
-                    Ok(PythonValue::SBValue((*sbvalue).clone()))
+                    Ok(Evaluated::SBValue((*sbvalue).clone()))
                 }
                 2 => {
                     let bytes = slice::from_raw_parts(data as *const u8, len);
-                    Ok(PythonValue::String(String::from_utf8_lossy(bytes).into_owned()))
+                    Ok(Evaluated::String(String::from_utf8_lossy(bytes).into_owned()))
                 }
                 3 => {
                     let bytes = slice::from_raw_parts(data as *const u8, len);
@@ -39,18 +41,15 @@ pub fn evaluate(
     let mut eval_result = Err(String::new());
 
     let command = format!(
-        "script codelldb.evaluate('{}', {:#X}, {:#X})",
-        script, callback as *mut c_void as usize, &mut eval_result as *mut EvalResult as usize
+        "script codelldb.evaluate('{}', {}, {:#X}, {:#X})",
+        script,
+        if simple_expr { "True" } else { "False" },
+        callback as *mut c_void as usize,
+        &mut eval_result as *mut EvalResult as usize
     );
     let result = interpreter.handle_command_with_context(&command, &context, &mut command_result, false);
 
     info!("{:?}", command_result);
     info!("{:?}", eval_result);
     eval_result
-}
-
-#[derive(Debug)]
-pub enum PythonValue {
-    SBValue(SBValue),
-    String(String),
 }

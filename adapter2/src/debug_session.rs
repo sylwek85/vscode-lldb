@@ -78,10 +78,10 @@ enum ExprType {
     Simple,
 }
 
-#[derive(PartialOrd, Ord, PartialEq, Eq)]
-struct Key<'a> {
-    first: Cow<'a, str>,
-    second: Cow<'a, str>,
+#[derive(Debug)]
+pub enum Evaluated {
+    SBValue(SBValue),
+    String(String),
 }
 
 struct DebugSessionInner {
@@ -152,7 +152,8 @@ impl DebugSession {
                         inner2.lock().unwrap().handle_message(msg);
                     })
                 }).map_err(|_| ())
-            }).then(|r| {
+            })
+            .then(|r| {
                 info!("### sink_to_inner resolved");
                 r
             });
@@ -179,7 +180,8 @@ impl DebugSession {
             .for_each(move |event| {
                 inner2.lock().unwrap().handle_debug_event(event);
                 Ok(())
-            }).then(|r| {
+            })
+            .then(|r| {
                 info!("### event_listener_to_inner resolved");
                 r
             });
@@ -845,13 +847,26 @@ impl DebugSessionInner {
             }
         }
         // Expression
-        self.evaluate_expr_in_frame(expression, frame);
-        unimplemented!()
+        self.evaluate_expr_in_frame(expression, frame).map(|val| match val {
+            Evaluated::SBValue(sbval) => {
+                let handle = self.get_var_handle(None, expression, &sbval);
+                EvaluateResponseBody {
+                    result: self.get_var_value_str(&sbval, handle.is_some()),
+                    type_: sbval.type_name().map(|s| s.to_owned()),
+                    variables_reference: handles::to_i64(handle),
+                    ..Default::default()
+                }
+            }
+            Evaluated::String(s) => EvaluateResponseBody {
+                result: s,
+                ..Default::default()
+            },
+        })
     }
 
     // Evaluates expr in the context of frame (or in global context if frame is None)
     // Returns expressions.Value or SBValue on success, SBError on failure.
-    fn evaluate_expr_in_frame(&self, expr: &str, frame: Option<&SBFrame>) -> Result<SBValue, SBError> {
+    fn evaluate_expr_in_frame(&self, expr: &str, frame: Option<&SBFrame>) -> Result<Evaluated, Error> {
         let (expr, ty) = self.get_expression_type(expr);
         match ty {
             ExprType::Native => {
@@ -861,18 +876,27 @@ impl DebugSessionInner {
                 };
                 let error = result.error();
                 if error.success() {
-                    Ok(result)
+                    Ok(Evaluated::SBValue(result))
                 } else {
-                    Err(error)
+                    Err(error.into())
                 }
             }
             ExprType::Python => {
                 let interpreter = self.debugger.command_interpreter();
                 let context = self.context_from_frame(frame);
-                let result = python::evaluate(&interpreter, &expr, &context);
-                unimplemented!()
+                match python::evaluate(&interpreter, &expr, false, &context) {
+                    Ok(val) => Ok(val),
+                    Err(s) => Err(Error::UserError(s)),
+                }
             }
-            ExprType::Simple => unimplemented!(),
+            ExprType::Simple => {
+                let interpreter = self.debugger.command_interpreter();
+                let context = self.context_from_frame(frame);
+                match python::evaluate(&interpreter, &expr, true, &context) {
+                    Ok(val) => Ok(val),
+                    Err(s) => Err(Error::UserError(s)),
+                }
+            }
         }
     }
 

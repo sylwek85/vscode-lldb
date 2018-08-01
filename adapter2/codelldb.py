@@ -1,25 +1,37 @@
+import sys
 import lldb
 import traceback
 from ctypes import *
+from value import Value
 
-RESULT_CALLBACK = CFUNCTYPE(None, c_void_p, c_int, c_void_p, c_size_t)
+RESULT_CALLBACK = CFUNCTYPE(None, c_int, c_void_p, c_size_t, c_void_p)
 
-def evaluate(script, callback_addr, param_addr):
+def evaluate(script, simple_expr, callback_addr, param_addr):
     callback = RESULT_CALLBACK(callback_addr)
-    eval_locals = PyEvalContext(lldb.frame)
-    eval_globals = {}
-    eval_globals['__frame_vars'] = eval_locals
+
+    print lldb.debugger, lldb.process, lldb.thread, lldb.frame
+
+    if simple_expr:
+        eval_globals = {}
+        eval_locals = PyEvalContext(lldb.frame)
+        eval_globals['__frame_vars'] = eval_locals
+    else:
+        import __main__
+        eval_globals = getattr(__main__, lldb.debugger.GetInstanceName() + '_dict')
+        eval_globals['__frame_vars'] = PyEvalContext(lldb.frame)
+        eval_locals = {}
+
     try:
         result = eval(script, eval_globals, eval_locals)
+        result = Value.unwrap(result)
         if isinstance(result, lldb.SBValue):
-            callback(param_addr, 1, long(result.this), 0)
+            callback(1, long(result.this), 0, param_addr)
         else:
             s = str(result)
-            callback(param_addr, 2, s, len(s))
+            callback(2, s, len(s), param_addr)
     except Exception as e:
         s = traceback.format_exc()
-        callback(param_addr, 3, s, len(s))
-
+        callback(3, s, len(s), param_addr)
 
 def find_var_in_frame(sbframe, name):
     val = sbframe.FindVariable(name)

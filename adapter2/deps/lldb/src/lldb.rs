@@ -56,16 +56,13 @@ where
 {
     let mut buffer = Vec::with_capacity(initial_capacity);
     let mut size = f(buffer.as_ptr() as *mut c_char, buffer.capacity());
-    if (size as isize) < 0 {
-        panic!();
-    }
+    assert!((size as isize) >= 0);
+
     if size >= buffer.capacity() {
         let additional = size - buffer.capacity() + 1;
         buffer.reserve(additional);
         size = f(buffer.as_ptr() as *mut c_char, buffer.capacity());
-        if (size as isize) < 0 {
-            panic!();
-        }
+        assert!((size as isize) >= 0);
     }
     unsafe { buffer.set_len(size) };
     String::from_utf8(buffer).unwrap()
