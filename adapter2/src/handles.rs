@@ -17,22 +17,10 @@ pub fn from_i64(v: i64) -> Option<Handle> {
     Handle::new(v as u32)
 }
 
-#[derive(PartialEq, Eq, Hash, Clone)]
-pub struct VPath(pub Rc<(Option<VPath>, String)>);
-
-impl VPath {
-    pub fn new(key: &str) -> VPath {
-        VPath(Rc::new((None, key.to_owned())))
-    }
-    pub fn extend(&self, key: &str) -> VPath {
-        VPath(Rc::new((Some(self.clone()), key.to_owned())))
-    }
-}
-
 pub struct HandleTree<Value> {
-    obj_by_handle: HashMap<Handle, (Value, VPath)>,
-    handle_by_vpath: HashMap<VPath, Handle>,
-    prev_handle_by_vpath: HashMap<VPath, Handle>,
+    obj_by_handle: HashMap<Handle, (Option<Handle>, Rc<String>, Value)>,
+    handle_tree: HashMap<(Handle, Rc<String>), Handle>,
+    prev_handle_tree: HashMap<(Handle, Rc<String>), Handle>,
     next_handle_value: u32,
 }
 
@@ -40,51 +28,52 @@ impl<Value> HandleTree<Value> {
     pub fn new() -> Self {
         HandleTree {
             obj_by_handle: HashMap::new(),
-            handle_by_vpath: HashMap::new(),
-            prev_handle_by_vpath: HashMap::new(),
+            handle_tree: HashMap::new(),
+            prev_handle_tree: HashMap::new(),
             next_handle_value: 1000,
         }
     }
 
     pub fn reset(&mut self) {
         self.obj_by_handle.clear();
-        self.prev_handle_by_vpath.clear();
-        let HandleTree {
-            ref mut handle_by_vpath,
-            ref mut prev_handle_by_vpath,
-            ..
-        } = self;
-        mem::swap(handle_by_vpath, prev_handle_by_vpath);
+        self.prev_handle_tree.clear();
+        mem::swap(&mut self.handle_tree, &mut self.prev_handle_tree);
     }
 
     pub fn create(&mut self, parent_handle: Option<Handle>, key: &str, value: Value) -> Handle {
-        let new_vpath = match parent_handle {
-            Some(parent_handle) => {
-                let (_, parent_vpath) = self.obj_by_handle.get(&parent_handle).unwrap();
-                parent_vpath.extend(key)
-            }
-            None => VPath::new(key),
+        let key = Rc::new(key.to_owned());
+        let maybe_new_handle = match parent_handle {
+            Some(ph) => self.prev_handle_tree.get(&(ph, key.clone())).to_owned(),
+            None => None,
         };
 
-        let new_handle = match self.prev_handle_by_vpath.get(&new_vpath) {
-            Some(handle) => handle.clone(),
+        let new_handle = match maybe_new_handle {
+            Some(h) => *h,
             None => {
                 self.next_handle_value += 1;
                 Handle::new(self.next_handle_value).unwrap()
             }
         };
 
-        self.handle_by_vpath.insert(new_vpath.clone(), new_handle);
-        self.obj_by_handle.insert(new_handle, (value, new_vpath));
+        if let Some(ph) = parent_handle {
+            self.handle_tree.insert((ph, key.clone()), new_handle);
+        }
+        self.obj_by_handle.insert(new_handle, (parent_handle, key, value));
         new_handle
     }
 
     pub fn get(&self, handle: Handle) -> Option<&Value> {
-        self.obj_by_handle.get(&handle).map(|t| &t.0)
+        match self.obj_by_handle.get(&handle) {
+            Some(v) => Some(&v.2),
+            None => None,
+        }
     }
 
-    pub fn get_with_vpath(&self, handle: Handle) -> Option<&(Value, VPath)> {
-        self.obj_by_handle.get(&handle)
+    pub fn get_full_info(&self, handle: Handle) -> Option<(Option<Handle>, &str, &Value)> {
+        match self.obj_by_handle.get(&handle) {
+            Some(v) => Some((v.0, &v.1, &v.2)),
+            None => None,
+        }
     }
 }
 

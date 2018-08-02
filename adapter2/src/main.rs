@@ -53,6 +53,15 @@ mod python;
 mod source_map;
 mod wire_protocol;
 
+macro_rules! extract {
+    ($compound:ident => $pattern:pat => $vars:expr) => {
+        match $compound {
+            $pattern => $vars,
+            _ => unreachable!(),
+        }
+    };
+}
+
 fn main() {
     env_logger::init();
     SBDebugger::initialize();

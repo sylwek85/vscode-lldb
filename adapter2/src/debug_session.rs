@@ -28,7 +28,7 @@ use crate::cancellation::{CancellationSource, CancellationToken};
 use crate::debug_protocol::*;
 use crate::disassembly;
 use crate::error::Error;
-use crate::handles::{self, Handle, HandleTree, VPath};
+use crate::handles::{self, Handle, HandleTree};
 use crate::must_initialize::{Initialized, MustInitialize, NotInitialized};
 use crate::python;
 use crate::source_map;
@@ -64,7 +64,7 @@ struct BreakpointInfo {
     ignore_count: u32,
 }
 
-enum VarsScope {
+enum Container {
     StackFrame(SBFrame),
     Locals(SBFrame),
     Statics(SBFrame),
@@ -97,7 +97,7 @@ struct DebugSessionInner {
     source_breakpoints: HashMap<FileId, HashMap<i64, BreakpointID>>,
     fn_breakpoints: HashMap<String, BreakpointID>,
     breakpoints: HashMap<BreakpointID, BreakpointInfo>,
-    var_refs: HandleTree<VarsScope>,
+    var_refs: HandleTree<Container>,
     disassembly: MustInitialize<disassembly::AddressSpace>,
     known_threads: HashSet<ThreadID>,
     source_map: source_map::SourceMap,
@@ -581,7 +581,7 @@ impl DebugSessionInner {
 
             let handle = self
                 .var_refs
-                .create(None, "[frame]", VarsScope::StackFrame(frame.clone()));
+                .create(None, "[frame]", Container::StackFrame(frame.clone()));
             let mut stack_frame: StackFrame = Default::default();
 
             stack_frame.id = handle.get() as i64;
@@ -644,11 +644,11 @@ impl DebugSessionInner {
 
     fn handle_scopes(&mut self, args: ScopesArguments) -> Result<ScopesResponseBody, Error> {
         let frame_id = Handle::new(args.frame_id as u32).unwrap();
-        if let Some(VarsScope::StackFrame(frame)) = self.var_refs.get(frame_id) {
+        if let Some(Container::StackFrame(frame)) = self.var_refs.get(frame_id) {
             let frame = frame.clone();
             let locals_handle = self
                 .var_refs
-                .create(Some(frame_id), "[locs]", VarsScope::Locals(frame.clone()));
+                .create(Some(frame_id), "[locs]", Container::Locals(frame.clone()));
             let locals = Scope {
                 name: "Local".into(),
                 variables_reference: locals_handle.get() as i64,
@@ -657,7 +657,7 @@ impl DebugSessionInner {
             };
             let statics_handle = self
                 .var_refs
-                .create(Some(frame_id), "[stat]", VarsScope::Statics(frame.clone()));
+                .create(Some(frame_id), "[stat]", Container::Statics(frame.clone()));
             let statics = Scope {
                 name: "Static".into(),
                 variables_reference: statics_handle.get() as i64,
@@ -666,7 +666,7 @@ impl DebugSessionInner {
             };
             let globals_handle = self
                 .var_refs
-                .create(Some(frame_id), "[glob]", VarsScope::Globals(frame.clone()));
+                .create(Some(frame_id), "[glob]", Container::Globals(frame.clone()));
             let globals = Scope {
                 name: "Global".into(),
                 variables_reference: globals_handle.get() as i64,
@@ -675,7 +675,7 @@ impl DebugSessionInner {
             };
             let registers_handle = self
                 .var_refs
-                .create(Some(frame_id), "[regs]", VarsScope::Registers(frame));
+                .create(Some(frame_id), "[regs]", Container::Registers(frame));
             let registers = Scope {
                 name: "Registers".into(),
                 variables_reference: registers_handle.get() as i64,
@@ -691,10 +691,11 @@ impl DebugSessionInner {
     }
 
     fn handle_variables(&mut self, args: VariablesArguments) -> Result<VariablesResponseBody, Error> {
-        let container_handle = Handle::new(args.variables_reference as u32).unwrap();
-        if let Some((container, container_vpath)) = self.var_refs.get_with_vpath(container_handle) {
+        let container_handle = handles::from_i64(args.variables_reference).unwrap();
+
+        if let Some(container) = self.var_refs.get(container_handle) {
             let variables = match container {
-                VarsScope::Locals(frame) => {
+                Container::Locals(frame) => {
                     let ret_val = frame.thread().stop_return_value();
                     let variables = frame.variables(&VariableOptions {
                         arguments: true,
@@ -704,9 +705,9 @@ impl DebugSessionInner {
                         use_dynamic: DynamicValueType::NoDynamicValues,
                     });
                     let mut vars_iter = ret_val.into_iter().chain(variables.iter());
-                    self.convert_scope_values(&mut vars_iter, String::new(), Some(container_handle))
+                    self.convert_scope_values(&mut vars_iter, "", Some(container_handle))
                 }
-                VarsScope::Statics(frame) => {
+                Container::Statics(frame) => {
                     let variables = frame.variables(&VariableOptions {
                         arguments: false,
                         locals: false,
@@ -715,9 +716,9 @@ impl DebugSessionInner {
                         use_dynamic: DynamicValueType::NoDynamicValues,
                     });
                     let mut vars_iter = variables.iter().filter(|v| v.value_type() != ValueType::VariableStatic);
-                    self.convert_scope_values(&mut vars_iter, String::new(), Some(container_handle))
+                    self.convert_scope_values(&mut vars_iter, "", Some(container_handle))
                 }
-                VarsScope::Globals(frame) => {
+                Container::Globals(frame) => {
                     let variables = frame.variables(&VariableOptions {
                         arguments: false,
                         locals: false,
@@ -726,45 +727,36 @@ impl DebugSessionInner {
                         use_dynamic: DynamicValueType::NoDynamicValues,
                     });
                     let mut vars_iter = variables.iter(); //.filter(|v| v.value_type() != ValueType::VariableGlobal);
-                    self.convert_scope_values(&mut vars_iter, String::new(), Some(container_handle))
+                    self.convert_scope_values(&mut vars_iter, "", Some(container_handle))
                 }
-                VarsScope::Registers(frame) => {
+                Container::Registers(frame) => {
                     let list = frame.registers();
                     let mut vars_iter = list.iter();
-                    self.convert_scope_values(&mut vars_iter, String::new(), Some(container_handle))
+                    self.convert_scope_values(&mut vars_iter, "", Some(container_handle))
                 }
-                VarsScope::Container(var) => {
-                    let container_eval_name = if var.value_type() != ValueType::RegisterSet {
-                        vpath_to_eval_name(container_vpath)
-                    } else {
-                        // Registers are addressed directly by name, without parent reference.
-                        // TODO: Look at the actual container type.
-                        String::new()
-                    };
+                Container::Container(var) => {
+                    let container_eval_name = self.compose_container_eval_name(container_handle);
                     let var = var.clone();
                     let mut vars_iter = var.children();
                     let mut variables =
-                        self.convert_scope_values(&mut vars_iter, container_eval_name, Some(container_handle));
+                        self.convert_scope_values(&mut vars_iter, &container_eval_name, Some(container_handle));
+                    // If synthetic, add [raw] view.
                     if var.is_synthetic() {
                         let raw_var = var.non_synthetic_value();
-                        let mut stm = SBStream::new();
-                        raw_var.get_expression_path(&mut stm);
-                        let path = str::from_utf8(stm.data()).unwrap();
                         let handle =
                             self.var_refs
-                                .create(Some(container_handle), "[raw]", VarsScope::Container(raw_var));
+                                .create(Some(container_handle), "[raw]", Container::Container(raw_var));
                         let raw = Variable {
                             name: "[raw]".to_owned(),
                             value: var.type_name().unwrap_or_default().to_owned(),
                             variables_reference: handles::to_i64(Some(handle)),
-                            evaluate_name: Some(format!("/nat {}", path)),
                             ..Default::default()
                         };
                         variables.push(raw);
                     }
                     variables
                 }
-                VarsScope::StackFrame(_) => vec![],
+                Container::StackFrame(_) => vec![],
             };
             Ok(VariablesResponseBody { variables: variables })
         } else {
@@ -775,8 +767,24 @@ impl DebugSessionInner {
         }
     }
 
+    fn compose_container_eval_name(&self, container_handle: Handle) -> String {
+        let mut eval_name = String::new();
+        let mut container_handle = Some(container_handle);
+        while let Some(h) = container_handle {
+            let (parent_handle, key, value) = self.var_refs.get_full_info(h).unwrap();
+            match value {
+                Container::Container(var) if var.value_type() != ValueType::RegisterSet => {
+                    eval_name = compose_eval_name(key, eval_name);
+                    container_handle = parent_handle;
+                }
+                _ => break,
+            }
+        }
+        eval_name
+    }
+
     fn convert_scope_values(
-        &mut self, vars_iter: &mut Iterator<Item = SBValue>, container_eval_name: String,
+        &mut self, vars_iter: &mut Iterator<Item = SBValue>, container_eval_name: &str,
         container_handle: Option<Handle>,
     ) -> Vec<Variable> {
         // TODO: [raw], evaluateName
@@ -788,13 +796,22 @@ impl DebugSessionInner {
                 let value = self.get_var_value_str(&var, container_handle.is_some());
                 let handle = self.get_var_handle(container_handle, name, &var);
 
+                let eval_name = if var.prefer_synthetic_value() {
+                    Some(compose_eval_name(container_eval_name, name))
+                } else {
+                    var.expression_path().map(|p| {
+                        let mut p = p;
+                        p.insert_str(0, "/nat ");
+                        p
+                    })
+                };
+
                 let variable = Variable {
                     name: name.to_owned(),
                     value: value,
-                    type_: Some(format!("id={} valtype={:?}", var.id(), var.value_type())),
-                    //type_: dtype.map(|v| v.to_owned()),
+                    type_: dtype.map(|v| v.to_owned()),
                     variables_reference: handles::to_i64(handle),
-                    evaluate_name: Some(compose_eval_name(container_eval_name.clone(), name)),
+                    evaluate_name: eval_name,
                     ..Default::default()
                 };
 
@@ -821,7 +838,7 @@ impl DebugSessionInner {
         if var.num_children() > 0 || var.is_synthetic() {
             Some(
                 self.var_refs
-                    .create(parent_handle, key, VarsScope::Container(var.clone())),
+                    .create(parent_handle, key, Container::Container(var.clone())),
             )
         } else {
             None
@@ -858,7 +875,7 @@ impl DebugSessionInner {
     fn handle_evaluate(&mut self, args: EvaluateArguments) -> Result<EvaluateResponseBody, Error> {
         let frame: Option<&SBFrame> = args.frame_id.map(|id| {
             let handle = handles::from_i64(id).unwrap();
-            if let Some(VarsScope::StackFrame(ref frame)) = self.var_refs.get(handle) {
+            if let Some(Container::StackFrame(ref frame)) = self.var_refs.get(handle) {
                 frame
             } else {
                 panic!("Invalid frameId");
@@ -1215,28 +1232,20 @@ impl DebugSessionInner {
     }
 }
 
-fn vpath_to_eval_name(vpath: &VPath) -> String {
-    let mut stack = vec![];
-    let mut curr = Some(vpath.clone());
-    while let Some(vpath) = curr {
-        stack.push(vpath.clone());
-        curr = (vpath.0).0.clone();
-    }
-    let mut name = String::new();
-    for vpath in stack.iter().rev().skip(2) {
-        name = compose_eval_name(name, &(vpath.0).1)
-    }
-    name
-}
-
-fn compose_eval_name(mut prefix: String, suffix: &str) -> String {
-    if prefix.is_empty() {
-        prefix = suffix.to_owned();
-    } else if suffix.starts_with("[") {
-        prefix.push_str(suffix);
+fn compose_eval_name<'a, 'b, A, B>(prefix: A, suffix: B) -> String
+where
+    A: Into<Cow<'a, str>>,
+    B: Into<Cow<'b, str>>,
+{
+    let prefix = prefix.into();
+    let suffix = suffix.into();
+    if prefix.as_ref().is_empty() {
+        suffix.into_owned()
+    } else if suffix.as_ref().is_empty() {
+        prefix.into_owned()
+    } else if suffix.as_ref().starts_with("[") {
+        (prefix + suffix).into_owned()
     } else {
-        prefix.push_str(".");
-        prefix.push_str(suffix);
+        (prefix + "." + suffix).into_owned()
     }
-    prefix
 }

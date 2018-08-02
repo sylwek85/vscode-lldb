@@ -1263,9 +1263,40 @@ impl SBValue {
             return self->GetExpressionPath(*path);
         })
     }
+    pub fn expression_path(&self) -> Option<String> {
+        let mut stm = SBStream::new();
+        if self.get_expression_path(&mut stm) {
+            match str::from_utf8(stm.data()) {
+                Ok(s) => Some(s.to_owned()),
+                Err(_) => None
+            }
+        } else {
+            None
+        }
+    }
     pub fn non_synthetic_value(&self) -> SBValue {
         cpp!(unsafe [self as "SBValue*"] ->  SBValue as "SBValue"  {
             return self->GetNonSyntheticValue();
+        })
+    }
+    pub fn prefer_synthetic_value(&self) -> bool {
+        cpp!(unsafe [self as "SBValue*"] -> bool as "bool" {
+            return self->GetPreferSyntheticValue();
+        })
+    }
+    pub fn set_prefer_synthetic_value(&self, use_synthetic: bool) {
+        cpp!(unsafe [self as "SBValue*", use_synthetic as "bool"] {
+            return self->SetPreferSyntheticValue(use_synthetic);
+        })
+    }
+    pub fn prefer_dynamic_value(&self) -> DynamicValueType {
+        cpp!(unsafe [self as "SBValue*"] -> DynamicValueType as "DynamicValueType" {
+            return self->GetPreferDynamicValue();
+        })
+    }
+    pub fn set_prefer_dynamic_value(&self, use_dynamic: DynamicValueType) {
+        cpp!(unsafe [self as "SBValue*", use_dynamic as "DynamicValueType"] {
+            return self->SetPreferDynamicValue(use_dynamic);
         })
     }
 }
