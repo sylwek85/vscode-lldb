@@ -4,7 +4,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Normal",
+            "name": "Normal debuggee",
             "program": "${workspaceFolder}/../out/debuggee/debuggee",
             "args": ["vars"],
             "cwd": "${workspaceFolder}"
@@ -12,11 +12,21 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "CodeLLDB2",
+            "name": "CodeLLDB2 debuggee",
             "program": "${workspaceFolder}/../out/debuggee/debuggee",
             "args": ["vars"],
             "cwd": "${workspaceFolder}",
             "debugServer": 4711
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "CodeLLDB2 rusttypes",
+            "program": "${workspaceFolder}/../out/debuggee/rusttypes",
+            "args": ["vars"],
+            "cwd": "${workspaceFolder}",
+            "debugServer": 4711
         }
+
     ]
 }

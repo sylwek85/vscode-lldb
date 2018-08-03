@@ -7,6 +7,7 @@ path = "src/lldb.rs"
 
 [dependencies]
 cpp = { path = "../cpp/cpp" }
+bitflags = "1.0"
 
 [build-dependencies]
 cpp_build = { path = "../cpp/cpp_build" }

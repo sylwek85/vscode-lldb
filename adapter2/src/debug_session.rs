@@ -104,6 +104,7 @@ struct DebugSessionInner {
     source_map_cache: HashMap<(Cow<'static, str>, Cow<'static, str>), Option<Rc<String>>>,
     show_disassembly: Option<bool>,
     suppress_missing_files: bool,
+    deref_pointers: bool,
 }
 
 pub struct DebugSession {
@@ -139,6 +140,7 @@ impl DebugSession {
             source_map_cache: HashMap::new(),
             show_disassembly: None,
             suppress_missing_files: true,
+            deref_pointers: true,
         };
         let inner = Arc::new(Mutex::new(inner));
 
@@ -153,7 +155,8 @@ impl DebugSession {
                         inner2.lock().unwrap().handle_message(msg);
                     })
                 }).map_err(|_| ())
-            }).then(|r| {
+            })
+            .then(|r| {
                 info!("### sink_to_inner resolved");
                 r
             });
@@ -180,7 +183,8 @@ impl DebugSession {
             .for_each(move |event| {
                 inner2.lock().unwrap().handle_debug_event(event);
                 Ok(())
-            }).then(|r| {
+            })
+            .then(|r| {
                 info!("### event_listener_to_inner resolved");
                 r
             });
@@ -528,7 +532,7 @@ impl DebugSessionInner {
             launch_info.set_working_directory(&cwd);
         }
         if let Some(stop_on_entry) = args.stop_on_entry {
-            launch_info.set_launch_flags(launch_info.launch_flags() | SBLaunchInfo::eLaunchFlagStopAtEntry);
+            launch_info.set_launch_flags(launch_info.launch_flags() | LaunchFlag::StopAtEntry);
         }
         if let Some(source_map) = args.source_map {
             let iter = source_map.iter().map(|(k, v)| (k, v.as_ref()));
@@ -787,7 +791,6 @@ impl DebugSessionInner {
         &mut self, vars_iter: &mut Iterator<Item = SBValue>, container_eval_name: &str,
         container_handle: Option<Handle>,
     ) -> Vec<Variable> {
-        // TODO: [raw], evaluateName
         let mut variables = vec![];
         let mut variables_idx = HashMap::new();
         for var in vars_iter {
@@ -847,18 +850,38 @@ impl DebugSessionInner {
 
     // Get a displayable string from a SBValue
     fn get_var_value_str(&self, var: &SBValue, is_container: bool) -> String {
-        let mut value = None;
+        // TODO: let mut var: Cow<&SBValue> = var.into(); ???
+        let mut value_opt: Option<String> = None;
+        let mut var2: Option<SBValue> = None;
+        let mut var = var;
         // TODO: formats
-        // TODO: pointers
-        if value.is_none() {
-            value = var.value().map(|s| s.to_string_lossy().into_owned());
-            if value.is_none() {
-                value = var.summary().map(|s| s.to_string_lossy().into_owned());
+        // TODO: && format == eFormatDefault
+        if self.deref_pointers {
+            let type_class = var.type_().type_class();
+            if type_class.intersects(TypeClass::Pointer | TypeClass::Reference) {
+                if var.value_as_unsigned(0) == 0 {
+                    value_opt = Some("<null>".to_owned());
+                } else {
+                    if var.is_synthetic() {
+                        value_opt = var.summary().map(|s| into_string_lossy(s));
+                    } else {
+                        var2 = Some(var.dereference());
+                        var = var2.as_ref().unwrap();
+                    }
+                }
             }
         }
 
-        let value_str = match value {
-            Some(value) => value,
+        // Try value, then summary
+        if value_opt.is_none() {
+            value_opt = var.value().map(|s| into_string_lossy(s));
+            if value_opt.is_none() {
+                value_opt = var.summary().map(|s| into_string_lossy(s));
+            }
+        }
+
+        let value_str = match value_opt {
+            Some(s) => s,
             None => {
                 if is_container {
                     // TODO: Container summary
@@ -868,7 +891,7 @@ impl DebugSessionInner {
                 }
             }
         };
-        // TODO: encoding
+
         value_str
     }
 
@@ -895,7 +918,7 @@ impl DebugSessionInner {
                     result.error()
                 };
                 let response = EvaluateResponseBody {
-                    result: text.to_string_lossy().into_owned(),
+                    result: into_string_lossy(text),
                     ..Default::default()
                 };
                 return Ok(response);
@@ -1248,4 +1271,8 @@ where
     } else {
         (prefix + "." + suffix).into_owned()
     }
+}
+
+fn into_string_lossy(cstr: &std::ffi::CStr) -> String {
+    cstr.to_string_lossy().into_owned()
 }

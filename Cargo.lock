@@ -364,6 +364,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "lldb"
 version = "0.1.0"
 dependencies = [
+ "bitflags 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "cpp 0.3.2",
  "cpp_build 0.3.2",
 ]
