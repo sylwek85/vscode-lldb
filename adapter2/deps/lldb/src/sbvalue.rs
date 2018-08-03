@@ -201,3 +201,66 @@ pub enum ValueType {
     ConstResult = 7,         // constant result variables
     VariableThreadLocal = 8, // thread local storage variable
 }
+
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+#[repr(u32)]
+pub enum Format {
+    Default = 0,
+    Boolean,
+    Binary,
+    Bytes,
+    BytesWithASCII,
+    Char,
+    // Only printable characters, space if not printable
+    CharPrintable,
+    // Floating point complex type
+    Complex,
+    // NULL terminated C strings
+    CString,
+    Decimal,
+    Enum,
+    Hex,
+    HexUppercase,
+    Float,
+    Octal,
+    // OS character codes encoded into an integer 'PICT' 'text'
+    // etc...
+    OSType,
+    Unicode16,
+    Unicode32,
+    Unsigned,
+    Pointer,
+    VectorOfChar,
+    VectorOfSInt8,
+    VectorOfUInt8,
+    VectorOfSInt16,
+    VectorOfUInt16,
+    VectorOfSInt32,
+    VectorOfUInt32,
+    VectorOfSInt64,
+    VectorOfUInt64,
+    VectorOfFloat16,
+    VectorOfFloat32,
+    VectorOfFloat64,
+    VectorOfUInt128,
+    // Integer complex type
+    ComplexInteger,
+    // Print characters with no single quotes, used for
+    // character arrays that can contain non printable
+    // characters
+    CharArray,
+    // Describe what an address points to (func + offset with
+    // file/line, symbol + offset, data, etc)
+    AddressInfo,
+    // ISO C99 hex float string
+    HexFloat,
+    // Disassemble an opcode
+    Instruction,
+    // Do not print this
+    Void,
+}
+
+impl Format {
+    pub const Invalid: Format = Format::Default;
+    pub const ComplexFloat: Format = Format::Complex;
+}

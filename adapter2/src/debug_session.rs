@@ -8,6 +8,7 @@ use std::boxed::FnBox;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 use std::mem;
 use std::option;
 use std::path::{self, Component, Path, PathBuf};
@@ -105,6 +106,7 @@ struct DebugSessionInner {
     show_disassembly: Option<bool>,
     suppress_missing_files: bool,
     deref_pointers: bool,
+    container_summary: bool,
 }
 
 pub struct DebugSession {
@@ -141,6 +143,7 @@ impl DebugSession {
             show_disassembly: None,
             suppress_missing_files: true,
             deref_pointers: true,
+            container_summary: true,
         };
         let inner = Arc::new(Mutex::new(inner));
 
@@ -884,8 +887,11 @@ impl DebugSessionInner {
             Some(s) => s,
             None => {
                 if is_container {
-                    // TODO: Container summary
-                    "{...}".to_owned()
+                    if self.container_summary {
+                        self.get_container_summary(var)
+                    } else {
+                        "{...}".to_owned()
+                    }
                 } else {
                     "<not available>".to_owned()
                 }
@@ -893,6 +899,40 @@ impl DebugSessionInner {
         };
 
         value_str
+    }
+
+    fn get_container_summary(&self, var: &SBValue) -> String {
+        const MAX_LENGTH: usize = 32;
+
+        let mut summary = String::from("{");
+        let mut empty = true;
+        for child in var.children() {
+            if let Some(name) = child.name() {
+                if let Some(Ok(value)) = child.value().map(|s| s.to_str()) {
+                    if empty {
+                        empty = false;
+                    } else {
+                        summary.push_str(", ");
+                    }
+
+                    if name.starts_with("[") {
+                        summary.push_str(value);
+                    } else {
+                        write!(summary, "{}:{}", name, value);
+                    }
+                }
+            }
+
+            if summary.len() > MAX_LENGTH {
+                summary.push_str(", ...");
+                break;
+            }
+        }
+        if empty {
+            summary.push_str("...");
+        }
+        summary.push_str("}");
+        summary
     }
 
     fn handle_evaluate(&mut self, args: EvaluateArguments) -> Result<EvaluateResponseBody, Error> {
