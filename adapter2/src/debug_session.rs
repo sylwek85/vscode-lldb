@@ -466,20 +466,20 @@ impl DebugSessionInner {
                         //info!("Disabled BP location {}", bp_loc);
                     }
                 }
-                match bp_info.kind {
-                    BreakpointKind::Source { resolved_line, .. } => {
-                        if let Some(line) = resolved_line {
-                            bp_resp.verified = true;
-                            bp_resp.line = Some(line as i64);
-                            bp_resp.source = Some(Source {
-                                name: Some(file_name.to_owned()),
-                                path: Some(file_path.to_owned()),
-                                adapter_data: Some(json!(bp_info.id)),
-                                ..Default::default()
-                            })
-                        }
-                    }
-                    _ => unreachable!(),
+
+                if let BreakpointKind::Source {
+                    resolved_line: Some(line),
+                    ..
+                } = bp_info.kind
+                {
+                    bp_resp.verified = true;
+                    bp_resp.line = Some(line as i64);
+                    bp_resp.source = Some(Source {
+                        name: Some(file_name.to_owned()),
+                        path: Some(file_path.to_owned()),
+                        adapter_data: Some(json!(bp_info.id)),
+                        ..Default::default()
+                    })
                 }
                 bp
             };
@@ -798,7 +798,8 @@ impl DebugSessionInner {
         let mut variables_idx = HashMap::new();
         for var in vars_iter {
             if let Some(name) = var.name() {
-                let dtype = var.type_name();
+                //let dtype = var.type_name();
+                let dtype = Some(format!("{:?} {:?} {:?}", var.type_name(), var.type_().name(), var.type_().display_name()));
                 let value = self.get_var_value_str(&var, container_handle.is_some());
                 let handle = self.get_var_handle(container_handle, name, &var);
 

@@ -15,6 +15,18 @@ impl SBType {
             return self->GetTypeClass();
         })
     }
+    pub fn name(&self) -> &str {
+        let ptr = cpp!(unsafe [self as "SBType*"] -> *const c_char as "const char*" {
+            return self->GetName();
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
+    pub fn display_name(&self) -> &str {
+        let ptr = cpp!(unsafe [self as "SBType*"] -> *const c_char as "const char*" {
+            return self->GetDisplayTypeName();
+        });
+        unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
+    }
 }
 
 impl fmt::Debug for SBType {

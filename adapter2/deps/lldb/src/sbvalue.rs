@@ -20,6 +20,11 @@ impl SBValue {
             return self->GetError();
         })
     }
+    pub fn type_(&self) -> SBType {
+        cpp!(unsafe [self as "SBValue*"] -> SBType as "SBType" {
+            return self->GetType();
+        })
+    }
     pub fn name(&self) -> Option<&str> {
         let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {
             return self->GetName();
@@ -39,11 +44,6 @@ impl SBValue {
         } else {
             unsafe { Some(CStr::from_ptr(ptr).to_str().unwrap()) }
         }
-    }
-    pub fn type_(&self) -> SBType {
-        cpp!(unsafe [self as "SBValue*"] -> SBType as "SBType" {
-            return self->GetType();
-        })
     }
     pub fn display_type_name(&self) -> Option<&str> {
         let ptr = cpp!(unsafe [self as "SBValue*"] -> *const c_char as "const char*" {

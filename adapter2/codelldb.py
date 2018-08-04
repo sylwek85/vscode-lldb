@@ -1,8 +1,12 @@
 import sys
 import lldb
 import traceback
+import logging
 from ctypes import *
 from value import Value
+
+logging.basicConfig(level=logging.DEBUG, filename='/tmp/codelldb.log', datefmt='%H:%M:%S',
+                    format='[%(asctime)s %(name)s] %(message)s')
 
 RESULT_CALLBACK = CFUNCTYPE(None, c_int, c_void_p, c_size_t, c_void_p)
 
