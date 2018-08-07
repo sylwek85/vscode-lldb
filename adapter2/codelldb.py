@@ -5,15 +5,13 @@ import logging
 from ctypes import *
 from value import Value
 
-logging.basicConfig(level=logging.DEBUG, filename='/tmp/codelldb.log', datefmt='%H:%M:%S',
+logging.basicConfig(level=logging.INFO, filename='/tmp/codelldb.log', datefmt='%H:%M:%S',
                     format='[%(asctime)s %(name)s] %(message)s')
 
 RESULT_CALLBACK = CFUNCTYPE(None, c_int, c_void_p, c_size_t, c_void_p)
 
 def evaluate(script, simple_expr, callback_addr, param_addr):
     callback = RESULT_CALLBACK(callback_addr)
-
-    print lldb.debugger, lldb.process, lldb.thread, lldb.frame
 
     if simple_expr:
         eval_globals = {}
@@ -64,3 +62,6 @@ class PyEvalContext(dict):
             return val
         else:
             raise KeyError(name)
+
+def module_loaded(sbmodule_addr):
+    pass

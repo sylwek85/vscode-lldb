@@ -52,17 +52,15 @@ def __lldb_init_module(debugger, internal_dict):
     modules = target.modules
     log.info('### analyzing %d modules', len(modules))
     for module in modules:
-        if module.file.basename == 'rusttypes':
-            log.info('### analyzing module %s', module)
-            analyze_module(module)
+        analyze_module(module)
 
 def analyze_module(sbmodule):
     for cu in module.compile_units:
-        log.info('### analyzing unit %s', cu.file)
         if cu.GetLanguage() == lldb.eLanguageTypeRust:
+            log.info('### analyzing unit %s', cu.file)
             types = cu.GetTypes(lldb.eTypeClassUnion | lldb.eTypeClassStruct)
             for ty in types:
-                log.info('### analyzing type %s (%s)', ty.GetName(), ty.GetDisplayTypeName())
+                #log.info('### analyzing type %s (%s)', ty.GetName(), ty.GetDisplayTypeName())
                 analyze_type(ty)
 
 # Enums and tuples cannot be recognized based on type name.
@@ -71,25 +69,25 @@ ENUM_DISCRIMINANT = 'RUST$ENUM$DISR'
 ENCODED_ENUM_PREFIX = 'RUST$ENCODED$ENUM$'
 
 def analyze_type(obj_type):
+    num_fields = obj_type.GetNumberOfFields()
+    if num_fields == 0:
+        return
     type_class = obj_type.GetTypeClass()
-
     if type_class == lldb.eTypeClassUnion:
-        num_fields = obj_type.GetNumberOfFields()
         if num_fields == 1:
             first_variant_name = obj_type.GetFieldAtIndex(0).GetName()
-            if first_variant_name is None:
-                # Singleton
+            if first_variant_name is None: # Singleton
                 attach_summary_to_type(get_singleton_enum_summary, obj_type.GetDisplayTypeName())
-            elif first_variant_name.startswith(ENCODED_ENUM_PREFIX):
+            elif first_variant_name.startswith(ENCODED_ENUM_PREFIX): # Zero-optimized enum
                 provider_class = make_encoded_enum_provider_class(first_variant_name)
                 attach_synthetic_to_type(provider_class, obj_type.GetDisplayTypeName())
-        else:
+        else: # Regular enum
             attach_synthetic_to_type(RegularEnumProvider, obj_type.GetDisplayTypeName())
     elif type_class == lldb.eTypeClassStruct:
         first_field_name = obj_type.GetFieldAtIndex(0).GetName()
-        if first_field_name == ENUM_DISCRIMINANT:
+        if first_field_name == ENUM_DISCRIMINANT: # Enum variant
             attach_summary_to_type(get_enum_variant_summary, obj_type.GetDisplayTypeName())
-        elif first_field_name == '__0':
+        elif first_field_name == '__0': # Tuple variant or tuple struct
             attach_summary_to_type(get_tuple_summary, obj_type.GetDisplayTypeName())
 
 def attach_synthetic_to_type(synth_class, type_name, is_regex=False):
@@ -238,8 +236,8 @@ class RustSynthProvider(object):
 
 def make_encoded_enum_provider_class(variant_name):
     # 'Encoded' enums always have two variants, of which one contains no data,
-    # and the other one contains a field (not necessarily at the top level) that implements
-    # Zeroable.  This field is then used as a two-state discriminant.
+    # and the other one contains a field (not necessarily at the top level) that
+    # implements Zeroable.  This field is then used as a two-state discriminant.
     last_separator_index = variant_name.rfind("$")
     start_index = len(ENCODED_ENUM_PREFIX)
     indices_substring = variant_name[start_index:last_separator_index].split("$")

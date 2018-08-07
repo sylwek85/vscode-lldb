@@ -50,8 +50,24 @@ impl SBEvent {
             None
         }
     }
-    // pub fn as_target_event(&self) -> Option<SBTargetEvent> {}
-    // pub fn as_thread_event(&self) -> Option<SBThreadEvent> {}
+    pub fn as_target_event(&self) -> Option<SBTargetEvent> {
+        if cpp!(unsafe [self as "SBEvent*"] -> bool as "bool" {
+            return SBTarget::EventIsTargetEvent(*self);
+        }) {
+            Some(SBTargetEvent(self))
+        } else {
+            None
+        }
+    }
+    pub fn as_thread_event(&self) -> Option<SBThreadEvent> {
+        if cpp!(unsafe [self as "SBEvent*"] -> bool as "bool" {
+            return SBThread::EventIsThreadEvent(*self);
+        }) {
+            Some(SBThreadEvent(self))
+        } else {
+            None
+        }
+    }
 }
 
 impl fmt::Debug for SBEvent {
@@ -63,6 +79,8 @@ impl fmt::Debug for SBEvent {
         })
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub struct SBProcessEvent<'a>(&'a SBEvent);
 
@@ -94,6 +112,13 @@ impl<'a> SBProcessEvent<'a> {
             return SBProcess::GetInterruptedFromEvent(*event);
         })
     }
+
+    pub const BroadcastBitStateChanged: u32 = (1 << 0);
+    pub const BroadcastBitInterrupt: u32 = (1 << 1);
+    pub const BroadcastBitSTDOUT: u32 = (1 << 2);
+    pub const BroadcastBitSTDERR: u32 = (1 << 3);
+    pub const BroadcastBitProfileData: u32 = (1 << 4);
+    pub const BroadcastBitStructuredData: u32 = (1 << 5);
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
@@ -113,42 +138,100 @@ pub enum ProcessState {
     Suspended = 11,
 }
 
-pub struct SBBreakpointEvent<'a>(&'a SBEvent);
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub struct SBTargetEvent<'a>(&'a SBEvent);
 
+impl<'a> SBTargetEvent<'a> {
+    pub fn as_event(&self) -> &SBEvent {
+        self.0
+    }
+    pub fn target(&self) -> SBTarget {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*"] -> SBTarget as "SBTarget" {
+            return SBTarget::GetTargetFromEvent(*event);
+        })
+    }
+    pub fn num_modules(&self) -> u32 {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*"] -> u32 as "uint32_t" {
+            return SBTarget::GetNumModulesFromEvent(*event);
+        })
+    }
+    pub fn module_at_index(&self, index: u32) -> SBModule {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*", index as "uint32_t"] -> SBModule as "SBModule" {
+            return SBTarget::GetModuleAtIndexFromEvent(index, *event);
+        })
+    }
+    pub fn modules<'b>(&'b self) -> impl Iterator<Item = SBModule> + 'b {
+        SBIterator::new(self.num_modules() as u32, move |index| self.module_at_index(index))
+    }
+
+    pub const BroadcastBitBreakpointChanged: u32 = (1 << 0);
+    pub const BroadcastBitModulesLoaded: u32 = (1 << 1);
+    pub const BroadcastBitModulesUnloaded: u32 = (1 << 2);
+    pub const BroadcastBitWatchpointChanged: u32 = (1 << 3);
+    pub const BroadcastBitSymbolsLoaded: u32 = (1 << 4);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 pub struct SBThreadEvent<'a>(&'a SBEvent);
 
-// Possible values for SBEvent::event_type()
+impl<'a> SBThreadEvent<'a> {
+    pub fn as_event(&self) -> &SBEvent {
+        self.0
+    }
+    pub fn thread(&self) -> SBThread {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*"] -> SBThread as "SBThread" {
+            return SBThread::GetThreadFromEvent(*event);
+        })
+    }
+    pub fn frame(&self) -> SBFrame {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*"] -> SBFrame as "SBFrame" {
+            return SBThread::GetStackFrameFromEvent(*event);
+        })
+    }
 
-// pub const SBCommandInterpreter_eBroadcastBitAsynchronousErrorData: u32 = 16;
-// pub const SBCommandInterpreter_eBroadcastBitAsynchronousOutputData: u32 = 8;
-// pub const SBCommandInterpreter_eBroadcastBitQuitCommandReceived: u32 = 4;
-// pub const SBCommandInterpreter_eBroadcastBitResetPrompt: u32 = 2;
-// pub const SBCommandInterpreter_eBroadcastBitThreadShouldExit: u32 = 1;
+    pub const BroadcastBitStackChanged: u32 = (1 << 0);
+    pub const BroadcastBitThreadSuspended: u32 = (1 << 1);
+    pub const BroadcastBitThreadResumed: u32 = (1 << 2);
+    pub const BroadcastBitSelectedFrameChanged: u32 = (1 << 3);
+    pub const BroadcastBitThreadSelected: u32 = (1 << 4);
+}
 
-// pub const SBCommunication_eAllEventBits: u32 = !0;
-// pub const SBCommunication_eBroadcastBitDisconnected: u32 = 1;
-// pub const SBCommunication_eBroadcastBitPacketAvailable: u32 = 16;
-// pub const SBCommunication_eBroadcastBitReadThreadDidExit: u32 = 4;
-// pub const SBCommunication_eBroadcastBitReadThreadGotBytes: u32 = 2;
-// pub const SBCommunication_eBroadcastBitReadThreadShouldExit: u32 = 8;
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// pub const SBProcess_eBroadcastBitInterrupt: u32 = 2;
-// pub const SBProcess_eBroadcastBitProfileData: u32 = 16;
-// pub const SBProcess_eBroadcastBitSTDERR: u32 = 8;
-// pub const SBProcess_eBroadcastBitSTDOUT: u32 = 4;
-// pub const SBProcess_eBroadcastBitStateChanged: u32 = 1;
-// pub const SBProcess_eBroadcastBitStructuredData: u32 = 32;
+pub struct SBBreakpointEvent<'a>(&'a SBEvent);
 
-// pub const SBTarget_eBroadcastBitBreakpointChanged: u32 = 1;
-// pub const SBTarget_eBroadcastBitModulesLoaded: u32 = 2;
-// pub const SBTarget_eBroadcastBitModulesUnloaded: u32 = 4;
-// pub const SBTarget_eBroadcastBitSymbolsLoaded: u32 = 16;
-// pub const SBTarget_eBroadcastBitWatchpointChanged: u32 = 8;
-
-// pub const SBThread_eBroadcastBitSelectedFrameChanged: u32 = 8;
-// pub const SBThread_eBroadcastBitStackChanged: u32 = 1;
-// pub const SBThread_eBroadcastBitThreadResumed: u32 = 4;
-// pub const SBThread_eBroadcastBitThreadSelected: u32 = 16;
-// pub const SBThread_eBroadcastBitThreadSuspended: u32 = 2;
+impl<'a> SBBreakpointEvent<'a> {
+    pub fn as_event(&self) -> &SBEvent {
+        self.0
+    }
+    pub fn breakpoint(&self) -> SBBreakpoint {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*"] -> SBBreakpoint as "SBBreakpoint" {
+            return SBBreakpoint::GetBreakpointFromEvent(*event);
+        })
+    }
+    pub fn num_breakpoint_locations(&self) -> u32 {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*"] -> u32 as "uint32_t" {
+            return SBBreakpoint::GetNumBreakpointLocationsFromEvent(*event);
+        })
+    }
+    pub fn breakpoint_location_at_index(&self, index: u32) -> SBBreakpointLocation {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*", index as "uint32_t"] -> SBBreakpointLocation as "SBBreakpointLocation" {
+            return SBBreakpoint::GetBreakpointLocationAtIndexFromEvent(*event, index);
+        })
+    }
+    pub fn breakpoint_locations<'b>(&'b self) -> impl Iterator<Item = SBBreakpointLocation> + 'b {
+        SBIterator::new(self.num_breakpoint_locations() as u32, move |index| {
+            self.breakpoint_location_at_index(index)
+        })
+    }
+}

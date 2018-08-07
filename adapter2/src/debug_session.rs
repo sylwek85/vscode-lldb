@@ -158,8 +158,7 @@ impl DebugSession {
                         inner2.lock().unwrap().handle_message(msg);
                     })
                 }).map_err(|_| ())
-            })
-            .then(|r| {
+            }).then(|r| {
                 info!("### sink_to_inner resolved");
                 r
             });
@@ -186,8 +185,7 @@ impl DebugSession {
             .for_each(move |event| {
                 inner2.lock().unwrap().handle_debug_event(event);
                 Ok(())
-            })
-            .then(|r| {
+            }).then(|r| {
                 info!("### event_listener_to_inner resolved");
                 r
             });
@@ -393,7 +391,7 @@ impl DebugSessionInner {
             supports_conditional_breakpoints: true,
             supports_hit_conditional_breakpoints: true,
             supports_set_variable: true,
-            supports_completions_request: true,
+            supports_completions_request: false, // TODO
             supports_delayed_stack_trace_loading: true,
             support_terminate_debuggee: true,
             supports_log_points: true,
@@ -799,7 +797,12 @@ impl DebugSessionInner {
         for var in vars_iter {
             if let Some(name) = var.name() {
                 //let dtype = var.type_name();
-                let dtype = Some(format!("{:?} {:?} {:?}", var.type_name(), var.type_().name(), var.type_().display_name()));
+                let dtype = Some(format!(
+                    "{:?} {:?} {:?}",
+                    var.type_name(),
+                    var.type_().name(),
+                    var.type_().display_name()
+                ));
                 let value = self.get_var_value_str(&var, container_handle.is_some());
                 let handle = self.get_var_handle(container_handle, name, &var);
 
@@ -1167,12 +1170,14 @@ impl DebugSessionInner {
             self.handle_process_event(&process_event);
         } else if let Some(bp_event) = event.as_breakpoint_event() {
             //self.notify_breakpoint(event);
+        } else if let Some(target_event) = event.as_target_event() {
+            self.handle_target_event(&target_event);
         }
     }
 
     fn handle_process_event(&mut self, process_event: &SBProcessEvent) {
         let flags = process_event.as_event().flags();
-        if flags & SBProcess::eBroadcastBitStateChanged != 0 {
+        if flags & SBProcessEvent::BroadcastBitStateChanged != 0 {
             match process_event.process_state() {
                 ProcessState::Running => self.send_event(EventBody::continued(ContinuedEventBody {
                     all_threads_continued: Some(true),
@@ -1267,6 +1272,16 @@ impl DebugSessionInner {
             }));
         }
         self.known_threads = threads;
+    }
+
+    fn handle_target_event(&mut self, event: &SBTargetEvent) {
+        let flags = event.as_event().flags();
+        if flags & SBTargetEvent::BroadcastBitSymbolsLoaded != 0 {
+            let interpreter = self.debugger.command_interpreter();
+            for module in event.modules() {
+                python::module_loaded(&interpreter, &module);
+            }
+        }
     }
 
     fn map_filespec_to_local(&mut self, filespec: &SBFileSpec) -> Option<Rc<String>> {

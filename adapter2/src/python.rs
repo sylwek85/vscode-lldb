@@ -3,6 +3,7 @@ use std::os::raw::{c_int, c_ulong, c_void};
 use std::slice;
 
 use regex;
+use lldb::*;
 
 use crate::debug_session::Evaluated;
 use crate::lldb::*;
@@ -55,4 +56,11 @@ pub fn evaluate(
     info!("{:?}", command_result);
     info!("{:?}", eval_result);
     eval_result
+}
+
+pub fn module_loaded(interpreter: &SBCommandInterpreter, module: &SBModule) {
+    let mut command_result = SBCommandReturnObject::new();
+    let command = format!(
+        "script codelldb.module_loaded({:#X},)", module as *const SBModule as usize);
+    let result = interpreter.handle_command(&command, &mut command_result, false);
 }

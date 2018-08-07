@@ -22,3 +22,7 @@ before_script:
 after_failure:
   - cat $HOME/lldb.log
   - ls -R
+
+branches:
+  only:
+  - master

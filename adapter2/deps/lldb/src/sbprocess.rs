@@ -83,11 +83,4 @@ impl SBProcess {
             return self->Detach();
         })
     }
-
-    pub const eBroadcastBitStateChanged: u32 = 1;
-    pub const eBroadcastBitInterrupt: u32 = 2;
-    pub const eBroadcastBitSTDOUT: u32 = 4;
-    pub const eBroadcastBitSTDERR: u32 = 8;
-    pub const eBroadcastBitProfileData: u32 = 16;
-    pub const eBroadcastBitStructuredData: u32 = 32;
 }
