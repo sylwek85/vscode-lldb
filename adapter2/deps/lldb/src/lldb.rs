@@ -134,6 +134,7 @@ where
 mod sbaddress;
 mod sbbreakpoint;
 mod sbbreakpointlocation;
+mod sbbroadcaster;
 mod sbcommandinterpreter;
 mod sbcommandreturnobject;
 mod sbdata;
@@ -161,6 +162,7 @@ mod sbvaluelist;
 pub use sbaddress::*;
 pub use sbbreakpoint::*;
 pub use sbbreakpointlocation::*;
+pub use sbbroadcaster::*;
 pub use sbcommandinterpreter::*;
 pub use sbcommandreturnobject::*;
 pub use sbdata::*;

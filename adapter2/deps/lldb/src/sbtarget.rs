@@ -10,6 +10,11 @@ impl SBTarget {
             return self->IsValid();
         })
     }
+    pub fn broadcaster(&self) -> SBBroadcaster {
+        cpp!(unsafe [self as "SBTarget*"] -> SBBroadcaster as "SBBroadcaster" {
+            return self->GetBroadcaster();
+        })
+    }
     pub fn launch(&self, launch_info: &SBLaunchInfo) -> Result<SBProcess, SBError> {
         let mut error = SBError::new();
 

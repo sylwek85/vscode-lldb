@@ -54,6 +54,12 @@ def __lldb_init_module(debugger, internal_dict):
     for module in modules:
         analyze_module(module)
 
+    try:
+        import codelldb
+        codelldb.register_on_module_load(analyze_module)
+    except:
+        pass
+
 def analyze_module(sbmodule):
     for cu in module.compile_units:
         if cu.GetLanguage() == lldb.eLanguageTypeRust:

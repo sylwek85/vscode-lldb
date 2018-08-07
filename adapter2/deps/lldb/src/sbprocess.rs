@@ -84,3 +84,13 @@ impl SBProcess {
         })
     }
 }
+
+impl fmt::Debug for SBProcess {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBProcess*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
+        })
+    }
+}

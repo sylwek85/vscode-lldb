@@ -158,7 +158,8 @@ impl DebugSession {
                         inner2.lock().unwrap().handle_message(msg);
                     })
                 }).map_err(|_| ())
-            }).then(|r| {
+            })
+            .then(|r| {
                 info!("### sink_to_inner resolved");
                 r
             });
@@ -185,7 +186,8 @@ impl DebugSession {
             .for_each(move |event| {
                 inner2.lock().unwrap().handle_debug_event(event);
                 Ok(())
-            }).then(|r| {
+            })
+            .then(|r| {
                 info!("### event_listener_to_inner resolved");
                 r
             });
@@ -511,7 +513,7 @@ impl DebugSessionInner {
     }
 
     fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<Box<AsyncResponder>, Error> {
-        self.target = Initialized(self.debugger.create_target(&args.program, None, None, false)?);
+        self.target = Initialized(self.create_target(&args.program)?);
         self.disassembly = Initialized(disassembly::AddressSpace::new(&self.target));
         self.send_event(EventBody::initialized);
         Ok(Box::new(move |s: &mut DebugSessionInner| s.complete_launch(args)))
@@ -547,6 +549,15 @@ impl DebugSessionInner {
 
     fn handle_attach(&mut self, args: AttachRequestArguments) -> Result<Box<AsyncResponder>, Error> {
         unimplemented!()
+    }
+
+    fn create_target(&self, program: &str) -> Result<SBTarget, Error> {
+        let target = self.debugger.create_target(program, None, None, false)?;
+        target.broadcaster().add_listener(
+            &self.event_listener,
+            SBTargetEvent::BroadcastBitBreakpointChanged | SBTargetEvent::BroadcastBitModulesLoaded,
+        );
+        Ok(target)
     }
 
     fn handle_configuration_done(&mut self) -> Result<(), Error> {
@@ -1168,10 +1179,10 @@ impl DebugSessionInner {
         debug!("Debug event: {:?}", event);
         if let Some(process_event) = event.as_process_event() {
             self.handle_process_event(&process_event);
-        } else if let Some(bp_event) = event.as_breakpoint_event() {
-            //self.notify_breakpoint(event);
         } else if let Some(target_event) = event.as_target_event() {
             self.handle_target_event(&target_event);
+        } else if let Some(bp_event) = event.as_breakpoint_event() {
+            //self.notify_breakpoint(event);
         }
     }
 
@@ -1276,7 +1287,7 @@ impl DebugSessionInner {
 
     fn handle_target_event(&mut self, event: &SBTargetEvent) {
         let flags = event.as_event().flags();
-        if flags & SBTargetEvent::BroadcastBitSymbolsLoaded != 0 {
+        if flags & SBTargetEvent::BroadcastBitModulesLoaded!= 0 {
             let interpreter = self.debugger.command_interpreter();
             for module in event.modules() {
                 python::module_loaded(&interpreter, &module);

@@ -2,8 +2,8 @@ use std::mem;
 use std::os::raw::{c_int, c_ulong, c_void};
 use std::slice;
 
-use regex;
 use lldb::*;
+use regex;
 
 use crate::debug_session::Evaluated;
 use crate::lldb::*;
@@ -45,7 +45,7 @@ pub fn evaluate(
     let mut eval_result = Err(String::new());
 
     let command = format!(
-        "script codelldb.evaluate('{}', {}, {:#X}, {:#X})",
+        "script codelldb.evaluate('{}',{},{:#X},{:#X})",
         script,
         if simple_expr { "True" } else { "False" },
         callback as *mut c_void as usize,
@@ -59,8 +59,18 @@ pub fn evaluate(
 }
 
 pub fn module_loaded(interpreter: &SBCommandInterpreter, module: &SBModule) {
+    extern "C" fn assign_sbmodule(dest: *mut SBModule, src: *const SBModule) {
+        unsafe {
+            //*dest = (*src).clone();
+        }
+    }
+
     let mut command_result = SBCommandReturnObject::new();
-    let command = format!(
-        "script codelldb.module_loaded({:#X},)", module as *const SBModule as usize);
-    let result = interpreter.handle_command(&command, &mut command_result, false);
+    // let command = format!(
+    //     "script codelldb.module_loaded({:#X},{:#X})",
+    //     module as *const SBModule as usize, assign_sbmodule as *mut c_void as usize,
+    // );
+    // let command = "script print 'XXX'".to_owned();
+    // let result = interpreter.handle_command(&command, &mut command_result, false);
+    // info!("{:?}", command_result);
 }
