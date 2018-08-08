@@ -1,6 +1,7 @@
 use std::mem;
 use std::os::raw::{c_int, c_ulong, c_void};
 use std::slice;
+use std::fmt::Write;
 
 use lldb::*;
 use regex;
@@ -58,7 +59,7 @@ pub fn evaluate(
     eval_result
 }
 
-pub fn module_loaded(interpreter: &SBCommandInterpreter, module: &SBModule) {
+pub fn modules_loaded(interpreter: &SBCommandInterpreter, modules: &mut Iterator<Item = &SBModule>) {
     extern "C" fn assign_sbmodule(dest: *mut SBModule, src: *const SBModule) {
         unsafe {
             *dest = (*src).clone();
@@ -66,9 +67,17 @@ pub fn module_loaded(interpreter: &SBCommandInterpreter, module: &SBModule) {
     }
 
     let mut command_result = SBCommandReturnObject::new();
+    let module_addrs = modules.fold(String::new(), |mut s, m| {
+        if !s.is_empty() {
+            s.push(',');
+        }
+        write!(s, "{:#X}", m as *const SBModule as usize);
+        s
+    });
+    info!("{}", module_addrs);
     let command = format!(
-        "script codelldb.module_loaded({:#X},{:#X})",
-        module as *const SBModule as usize, assign_sbmodule as *mut c_void as usize,
+        "script codelldb.modules_loaded([{}],{:#X})",
+        module_addrs, assign_sbmodule as *mut c_void as usize,
     );
     let result = interpreter.handle_command(&command, &mut command_result, false);
     debug!("{:?}", command_result);

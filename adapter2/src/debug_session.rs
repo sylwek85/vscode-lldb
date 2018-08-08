@@ -1273,9 +1273,7 @@ impl DebugSessionInner {
         }));
 
         let interpreter = self.debugger.command_interpreter();
-        for module in &self.loaded_modules {
-            python::module_loaded(&interpreter, module)
-        }
+        python::modules_loaded(&interpreter, &mut self.loaded_modules.iter());
         self.loaded_modules.clear();
     }
 

@@ -77,15 +77,17 @@ def register_on_module_loaded(observer):
 
 ASSIGN_SBMODULE = CFUNCTYPE(None, c_void_p, c_void_p)
 
-def module_loaded(sbmodule_addr, assign_sbmodule_addr):
+def modules_loaded(sbmodule_addrs, assign_sbmodule_addr):
     assign_sbmodule = ASSIGN_SBMODULE(assign_sbmodule_addr)
     # SWIG does not provide a method for wrapping raw pointers from Python,
     # so we create a dummy module object, then call back into Rust code to
     # overwrite it with the module we need wrapped.
-    sbmodule = lldb.SBModule()
-    assign_sbmodule(long(sbmodule.this), sbmodule_addr)
-    for observer in module_loaded_observers:
-        try:
-            observer(sbmodule)
-        except Exception as err:
-            log.error('on_module_loaded observer %s raised %s', observer, err)
+    for addr in sbmodule_addrs:
+        sbmodule = lldb.SBModule() # Recreate, because sbmodule.compile_units will cache the list
+        assign_sbmodule(long(sbmodule.this), addr)
+        log.info('sbmodule is %s', sbmodule)
+        for observer in module_loaded_observers:
+            try:
+                observer(sbmodule)
+            except Exception as err:
+                log.error('on_module_loaded observer %s raised %s', observer, err)
