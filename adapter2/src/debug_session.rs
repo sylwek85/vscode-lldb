@@ -103,6 +103,7 @@ struct DebugSessionInner {
     known_threads: HashSet<ThreadID>,
     source_map: source_map::SourceMap,
     source_map_cache: HashMap<(Cow<'static, str>, Cow<'static, str>), Option<Rc<String>>>,
+    loaded_modules: Vec<SBModule>,
     show_disassembly: Option<bool>,
     suppress_missing_files: bool,
     deref_pointers: bool,
@@ -140,6 +141,7 @@ impl DebugSession {
             known_threads: HashSet::new(),
             source_map: source_map::SourceMap::empty(),
             source_map_cache: HashMap::new(),
+            loaded_modules: Vec::new(),
             show_disassembly: None,
             suppress_missing_files: true,
             deref_pointers: true,
@@ -158,8 +160,7 @@ impl DebugSession {
                         inner2.lock().unwrap().handle_message(msg);
                     })
                 }).map_err(|_| ())
-            })
-            .then(|r| {
+            }).then(|r| {
                 info!("### sink_to_inner resolved");
                 r
             });
@@ -186,8 +187,7 @@ impl DebugSession {
             .for_each(move |event| {
                 inner2.lock().unwrap().handle_debug_event(event);
                 Ok(())
-            })
-            .then(|r| {
+            }).then(|r| {
                 info!("### event_listener_to_inner resolved");
                 r
             });
@@ -385,6 +385,14 @@ impl DebugSessionInner {
         self.debugger = Initialized(SBDebugger::create(false));
         self.debugger.set_async(true);
         python::initialize(&self.debugger.command_interpreter());
+        let mut command_result = SBCommandReturnObject::new();
+        self.debugger.command_interpreter().handle_command(
+            "command script import '/home/chega/NW/vscode-lldb/adapter2/rust.py'",
+            &mut command_result,
+            false,
+        );
+        info!("{:?}", command_result);
+        //self.debugger.command_interpreter().handle_command("log enable lldb all", &mut command_result, false);
 
         let caps = Capabilities {
             supports_configuration_done_request: true,
@@ -1263,6 +1271,12 @@ impl DebugSessionInner {
             text: description,
             thread_id: stopped_thread.map(|t| t.thread_id() as i64),
         }));
+
+        let interpreter = self.debugger.command_interpreter();
+        for module in &self.loaded_modules {
+            python::module_loaded(&interpreter, module)
+        }
+        self.loaded_modules.clear();
     }
 
     // Notify VSCode about target threads that started or exited since the last stop.
@@ -1287,10 +1301,11 @@ impl DebugSessionInner {
 
     fn handle_target_event(&mut self, event: &SBTargetEvent) {
         let flags = event.as_event().flags();
-        if flags & SBTargetEvent::BroadcastBitModulesLoaded!= 0 {
-            let interpreter = self.debugger.command_interpreter();
+        if flags & SBTargetEvent::BroadcastBitModulesLoaded != 0 {
+            // Running scripts during target execution seems to trigger a bug in LLDB,
+            // so we defer loaded module notification till the next stop.
             for module in event.modules() {
-                python::module_loaded(&interpreter, &module);
+                self.loaded_modules.push(module);
             }
         }
     }

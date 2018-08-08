@@ -5,8 +5,10 @@ import logging
 from ctypes import *
 from value import Value
 
-logging.basicConfig(level=logging.INFO, filename='/tmp/codelldb.log', datefmt='%H:%M:%S',
-                    format='[%(asctime)s %(name)s] %(message)s')
+logging.basicConfig(level=logging.INFO, #filename='/tmp/codelldb.log',
+                    format='[%(asctime)s %(name)s] %(message)s', datefmt='%H:%M:%S')
+
+log = logging.getLogger('codelldb')
 
 #============================================================================================
 
@@ -76,16 +78,14 @@ def register_on_module_loaded(observer):
 ASSIGN_SBMODULE = CFUNCTYPE(None, c_void_p, c_void_p)
 
 def module_loaded(sbmodule_addr, assign_sbmodule_addr):
-    pass
-    #assign_sbmodule = ASSIGN_SBMODULE(assign_sbmodule_addr)
+    assign_sbmodule = ASSIGN_SBMODULE(assign_sbmodule_addr)
     # SWIG does not provide a method for wrapping raw pointers from Python,
     # so we create a dummy module object, then call back into Rust code to
     # overwrite it with the module we need wrapped.
-    #sbmodule = lldb.SBModule()
-    #assign_sbmodule(long(sbmodule.this), sbmodule_addr)
-    #print 'module_loaded ', sbmodule
-    # for observer in module_loaded_observers:
-    #     try:
-    #         observer(sbmodule)
-    #     except Error as err:
-    #         log.error('on_module_loaded observer %s raised %s', observer, err)
+    sbmodule = lldb.SBModule()
+    assign_sbmodule(long(sbmodule.this), sbmodule_addr)
+    for observer in module_loaded_observers:
+        try:
+            observer(sbmodule)
+        except Exception as err:
+            log.error('on_module_loaded observer %s raised %s', observer, err)

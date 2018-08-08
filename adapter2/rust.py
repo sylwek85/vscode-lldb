@@ -49,19 +49,18 @@ def __lldb_init_module(debugger, internal_dict):
     attach_synthetic_to_type(StdPathSynthProvider, 'std::path::Path')
 
     target = debugger.GetSelectedTarget()
-    modules = target.modules
-    log.info('### analyzing %d modules', len(modules))
-    for module in modules:
+    for module in target.modules:
         analyze_module(module)
 
     try:
         import codelldb
-        codelldb.register_on_module_load(analyze_module)
-    except:
-        pass
+        codelldb.register_on_module_loaded(analyze_module)
+    except Exception as err:
+        log.error('### %s', err)
 
 def analyze_module(sbmodule):
-    for cu in module.compile_units:
+    log.info('### analyzing module %s', sbmodule)
+    for cu in sbmodule.compile_units:
         if cu.GetLanguage() == lldb.eLanguageTypeRust:
             log.info('### analyzing unit %s', cu.file)
             types = cu.GetTypes(lldb.eTypeClassUnion | lldb.eTypeClassStruct)

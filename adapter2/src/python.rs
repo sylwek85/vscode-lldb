@@ -61,16 +61,15 @@ pub fn evaluate(
 pub fn module_loaded(interpreter: &SBCommandInterpreter, module: &SBModule) {
     extern "C" fn assign_sbmodule(dest: *mut SBModule, src: *const SBModule) {
         unsafe {
-            //*dest = (*src).clone();
+            *dest = (*src).clone();
         }
     }
 
     let mut command_result = SBCommandReturnObject::new();
-    // let command = format!(
-    //     "script codelldb.module_loaded({:#X},{:#X})",
-    //     module as *const SBModule as usize, assign_sbmodule as *mut c_void as usize,
-    // );
-    // let command = "script print 'XXX'".to_owned();
-    // let result = interpreter.handle_command(&command, &mut command_result, false);
-    // info!("{:?}", command_result);
+    let command = format!(
+        "script codelldb.module_loaded({:#X},{:#X})",
+        module as *const SBModule as usize, assign_sbmodule as *mut c_void as usize,
+    );
+    let result = interpreter.handle_command(&command, &mut command_result, false);
+    debug!("{:?}", command_result);
 }
