@@ -14,16 +14,8 @@ use std::option;
 use std::path::{self, Component, Path, PathBuf};
 use std::rc::Rc;
 use std::str;
-use std::sync::{Arc, Mutex};
-use std::thread;
 
-use futures::prelude::*;
-use futures::stream;
 use futures::sync::mpsc;
-use futures::sync::oneshot;
-use tokio;
-use tokio::prelude::*;
-use tokio_threadpool::blocking;
 
 use crate::cancellation::{CancellationSource, CancellationToken};
 use crate::debug_protocol::*;
@@ -35,7 +27,9 @@ use crate::python;
 use crate::source_map;
 use lldb::*;
 
-type AsyncResponder = FnBox(&mut DebugSessionInner) -> Result<ResponseBody, Error>;
+pub mod tokio;
+
+type AsyncResponder = FnBox(&mut DebugSession) -> Result<ResponseBody, Error>;
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 enum FileId {
@@ -86,7 +80,7 @@ pub enum Evaluated {
     String(String),
 }
 
-struct DebugSessionInner {
+pub struct DebugSession {
     send_message: mpsc::Sender<ProtocolMessage>,
     shutdown: CancellationSource,
     event_listener: SBListener,
@@ -104,28 +98,27 @@ struct DebugSessionInner {
     source_map: source_map::SourceMap,
     source_map_cache: HashMap<(Cow<'static, str>, Cow<'static, str>), Option<Rc<String>>>,
     loaded_modules: Vec<SBModule>,
+    exit_commands: Option<Vec<String>>,
     show_disassembly: Option<bool>,
     suppress_missing_files: bool,
     deref_pointers: bool,
     container_summary: bool,
 }
 
-pub struct DebugSession {
-    inner: Arc<Mutex<DebugSessionInner>>,
-    sender_in: mpsc::Sender<ProtocolMessage>,
-    receiver_out: mpsc::Receiver<ProtocolMessage>,
-    shutdown_token: CancellationToken,
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+unsafe impl Send for DebugSession {}
+
+impl Drop for DebugSession {
+    fn drop(&mut self) {
+        info!("### Dropping DebugSession");
+    }
 }
 
 impl DebugSession {
-    pub fn new() -> Self {
-        let (sender_in, receiver_in) = mpsc::channel(10);
-        let (sender_out, receiver_out) = mpsc::channel(10);
-        let shutdown = CancellationSource::new();
-        let shutdown_token = shutdown.cancellation_token();
-
-        let inner = DebugSessionInner {
-            send_message: sender_out,
+    fn new(send_message: mpsc::Sender<ProtocolMessage>, shutdown: CancellationSource) -> Self {
+        DebugSession {
+            send_message: send_message,
             shutdown: shutdown,
             debugger: NotInitialized,
             target: NotInitialized,
@@ -142,120 +135,14 @@ impl DebugSession {
             source_map: source_map::SourceMap::empty(),
             source_map_cache: HashMap::new(),
             loaded_modules: Vec::new(),
+            exit_commands: None,
             show_disassembly: None,
             suppress_missing_files: true,
             deref_pointers: true,
             container_summary: true,
-        };
-        let inner = Arc::new(Mutex::new(inner));
-
-        // Dispatch incoming requests to inner.handle_message()
-        let inner2 = inner.clone();
-        let sink_to_inner = receiver_in
-            .for_each(move |msg: ProtocolMessage| {
-                let inner2 = inner2.clone();
-                future::poll_fn(move || {
-                    let msg = msg.clone();
-                    blocking(|| {
-                        inner2.lock().unwrap().handle_message(msg);
-                    })
-                }).map_err(|_| ())
-            }).then(|r| {
-                info!("### sink_to_inner resolved");
-                r
-            });
-        tokio::spawn(sink_to_inner);
-
-        // Create a thread listening on inner's event_listener
-        let (mut sender, mut receiver) = mpsc::channel(10);
-        let listener = inner.lock().unwrap().event_listener.clone();
-        let token2 = shutdown_token.clone();
-        thread::spawn(move || {
-            let mut event = SBEvent::new();
-            while sender.poll_ready().is_ok() && !token2.is_cancelled() {
-                if listener.wait_for_event(1, &mut event) {
-                    if sender.try_send(event).is_err() {
-                        break;
-                    }
-                    event = SBEvent::new();
-                }
-            }
-        });
-        // Dispatch incoming events to inner.handle_debug_event()
-        let inner2 = inner.clone();
-        let event_listener_to_inner = receiver
-            .for_each(move |event| {
-                inner2.lock().unwrap().handle_debug_event(event);
-                Ok(())
-            }).then(|r| {
-                info!("### event_listener_to_inner resolved");
-                r
-            });
-        tokio::spawn(event_listener_to_inner);
-
-        DebugSession {
-            inner,
-            sender_in,
-            receiver_out,
-            shutdown_token,
         }
     }
-}
 
-impl Stream for DebugSession {
-    type Item = ProtocolMessage;
-    type Error = ();
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        match self.receiver_out.poll() {
-            Ok(Async::NotReady) if self.shutdown_token.is_cancelled() => {
-                error!("Stream::poll after shutdown");
-                Ok(Async::Ready(None))
-            }
-            Ok(r) => Ok(r),
-            Err(e) => Err(e),
-        }
-    }
-}
-
-impl Sink for DebugSession {
-    type SinkItem = ProtocolMessage;
-    type SinkError = ();
-    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        if self.shutdown_token.is_cancelled() {
-            error!("Sink::start_send after shutdown");
-            Err(())
-        } else {
-            self.sender_in.start_send(item).map_err(|err| panic!("{:?}", err))
-        }
-    }
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        if self.shutdown_token.is_cancelled() {
-            error!("Sink::poll_complete after shutdown");
-            Err(())
-        } else {
-            self.sender_in.poll_complete().map_err(|err| panic!("{:?}", err))
-        }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-unsafe impl Send for DebugSession {}
-unsafe impl Send for DebugSessionInner {}
-
-impl Drop for DebugSession {
-    fn drop(&mut self) {
-        info!("### Dropping DebugSession");
-    }
-}
-
-impl Drop for DebugSessionInner {
-    fn drop(&mut self) {
-        info!("### Dropping DebugSessionInner");
-    }
-}
-
-impl DebugSessionInner {
     fn handle_message(&mut self, message: ProtocolMessage) {
         match message {
             ProtocolMessage::Request(request) => self.handle_request(request),
@@ -521,13 +408,19 @@ impl DebugSessionInner {
     }
 
     fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<Box<AsyncResponder>, Error> {
+        if let Some(commands) = &args.init_commands {
+            self.exec_commands(&commands);
+        }
         self.target = Initialized(self.create_target(&args.program)?);
         self.disassembly = Initialized(disassembly::AddressSpace::new(&self.target));
         self.send_event(EventBody::initialized);
-        Ok(Box::new(move |s: &mut DebugSessionInner| s.complete_launch(args)))
+        Ok(Box::new(move |s: &mut DebugSession| s.complete_launch(args)))
     }
 
     fn complete_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody, Error> {
+        if let Some(commands) = args.pre_run_commands {
+            self.exec_commands(&commands);
+        }
         let mut launch_info = SBLaunchInfo::new();
         if let Some(ds) = args.display_settings {
             self.update_display_settings(&ds);
@@ -552,6 +445,10 @@ impl DebugSessionInner {
         launch_info.set_listener(&self.event_listener);
         self.process = Initialized(self.target.launch(&launch_info)?);
         self.process_launched = true;
+        if let Some(commands) = args.post_run_commands {
+            self.exec_commands(&commands);
+        }
+        self.exit_commands = args.exit_commands;
         Ok(ResponseBody::launch)
     }
 
@@ -566,6 +463,14 @@ impl DebugSessionInner {
             SBTargetEvent::BroadcastBitBreakpointChanged | SBTargetEvent::BroadcastBitModulesLoaded,
         );
         Ok(target)
+    }
+
+    fn exec_commands(&self, commands: &[String]) {
+        let interpreter = self.debugger.command_interpreter();
+        let mut command_result = SBCommandReturnObject::new();
+        for command in commands {
+            interpreter.handle_command(&command, &mut command_result, false);
+        }
     }
 
     fn handle_configuration_done(&mut self) -> Result<(), Error> {
@@ -1138,7 +1043,9 @@ impl DebugSessionInner {
     }
 
     fn handle_disconnect(&mut self, args: DisconnectArguments) -> Result<(), Error> {
-        // TODO: exitCommands
+        if let Some(commands) = &self.exit_commands {
+            self.exec_commands(&commands);
+        }
         let terminate = args.terminate_debuggee.unwrap_or(self.process_launched);
         if terminate {
             self.process.kill();

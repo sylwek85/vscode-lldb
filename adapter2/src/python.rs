@@ -42,7 +42,6 @@ pub fn evaluate(
         }
     }
 
-    let mut command_result = SBCommandReturnObject::new();
     let mut eval_result = Err(String::new());
 
     let command = format!(
@@ -52,6 +51,8 @@ pub fn evaluate(
         callback as *mut c_void as usize,
         &mut eval_result as *mut EvalResult as usize
     );
+
+    let mut command_result = SBCommandReturnObject::new();
     let result = interpreter.handle_command_with_context(&command, &context, &mut command_result, false);
 
     info!("{:?}", command_result);
@@ -66,7 +67,6 @@ pub fn modules_loaded(interpreter: &SBCommandInterpreter, modules: &mut Iterator
         }
     }
 
-    let mut command_result = SBCommandReturnObject::new();
     let module_addrs = modules.fold(String::new(), |mut s, m| {
         if !s.is_empty() {
             s.push(',');
@@ -75,6 +75,8 @@ pub fn modules_loaded(interpreter: &SBCommandInterpreter, modules: &mut Iterator
         s
     });
     info!("{}", module_addrs);
+
+    let mut command_result = SBCommandReturnObject::new();
     let command = format!(
         "script codelldb.modules_loaded([{}],{:#X})",
         module_addrs, assign_sbmodule as *mut c_void as usize,

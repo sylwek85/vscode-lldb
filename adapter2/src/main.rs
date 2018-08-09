@@ -81,7 +81,7 @@ fn main() {
         .for_each(|conn| {
             conn.set_nodelay(true);
             let (to_client, from_client) = wire_protocol::Codec::new().framed(conn).split();
-            let (to_session, from_session) = debug_session::DebugSession::new().split();
+            let (to_session, from_session) = debug_session::tokio::DebugSessionTokio::new().split();
 
             let client_to_session = from_client.map_err(|_| ()).forward(to_session).then(|r| {
                 info!("### client_to_session resolved");

@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 debug-protocol = { path = "deps/debug-protocol" }
+lldb = { path = "deps/lldb" }
 serde = "1.0.66"
 serde_derive = "1.0.66"
 serde_json = "1.0.20"
@@ -15,7 +16,6 @@ failure = "0.1.1"
 failure_derive = "0.1.1"
 log = "0.4.2"
 env_logger = "0.5.10"
-lldb = { path = "deps/lldb" }
 tokio = "0.1.7"
 tokio-io = "0.1.7"
 tokio-codec = "0.1.0"

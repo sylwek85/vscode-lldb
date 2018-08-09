@@ -39,12 +39,14 @@
 			"cargo":{
 				"args": [
 					"test",
-					"--no-run"
+					"--no-run",
+					"-p", "codelldb2"
 				],
 				"filter": {
 					"name": "codelldb2"
 				}
 			},
+			"args": ["--nocapture", "--test-threads=1"],
 			"env": {
 				"PATH": "${env:PATH}:/usr/lib/llvm-6.0/bin",
 				"RUST_LOG": "debug"
