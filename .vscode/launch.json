@@ -24,7 +24,8 @@
 			"program": "/home/chega/NW/vscode-lldb/target/debug/codelldb2",
 			"env": {
 				"PATH": "${env:PATH}:/usr/lib/llvm-6.0/bin",
-				"RUST_LOG": "debug"
+				"RUST_LOG": "debug",
+				"RUST_BACKTRACE": "1",
 			},
 			"sourceLanguages": [
 				"cpp", "rust"
@@ -49,7 +50,8 @@
 			"args": ["--nocapture", "--test-threads=1"],
 			"env": {
 				"PATH": "${env:PATH}:/usr/lib/llvm-6.0/bin",
-				"RUST_LOG": "debug"
+				"RUST_LOG": "debug",
+				"RUST_BACKTRACE": "1",
 			},
 			"sourceLanguages": [
 				"cpp", "rust"

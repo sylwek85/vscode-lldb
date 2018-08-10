@@ -176,6 +176,16 @@ impl SBValue {
             return self->SetPreferDynamicValue(use_dynamic);
         })
     }
+    pub fn format(&self) -> Format {
+        cpp!(unsafe [self as "SBValue*"] -> Format as "Format" {
+            return self->GetFormat();
+        })
+    }
+    pub fn set_format(&self, format: Format) {
+        cpp!(unsafe [self as "SBValue*", format as "Format"] {
+            return self->SetFormat(format);
+        })
+    }
 }
 
 impl fmt::Debug for SBValue {

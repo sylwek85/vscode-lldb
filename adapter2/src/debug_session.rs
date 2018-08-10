@@ -99,6 +99,8 @@ pub struct DebugSession {
     source_map_cache: HashMap<(Cow<'static, str>, Cow<'static, str>), Option<Rc<String>>>,
     loaded_modules: Vec<SBModule>,
     exit_commands: Option<Vec<String>>,
+
+    global_format: Format,
     show_disassembly: Option<bool>,
     suppress_missing_files: bool,
     deref_pointers: bool,
@@ -136,6 +138,7 @@ impl DebugSession {
             source_map_cache: HashMap::new(),
             loaded_modules: Vec::new(),
             exit_commands: None,
+            global_format: Format::Default,
             show_disassembly: None,
             suppress_missing_files: true,
             deref_pointers: true,
@@ -720,14 +723,8 @@ impl DebugSession {
         let mut variables_idx = HashMap::new();
         for var in vars_iter {
             if let Some(name) = var.name() {
-                //let dtype = var.type_name();
-                let dtype = Some(format!(
-                    "{:?} {:?} {:?}",
-                    var.type_name(),
-                    var.type_().name(),
-                    var.type_().display_name()
-                ));
-                let value = self.get_var_value_str(&var, container_handle.is_some());
+                let dtype = var.type_name();
+                let value = self.get_var_value_str(&var, self.global_format, container_handle.is_some());
                 let handle = self.get_var_handle(container_handle, name, &var);
 
                 let eval_name = if var.prefer_synthetic_value() {
@@ -760,7 +757,7 @@ impl DebugSession {
                 error!(
                     "Dropped value {:?} {}",
                     var.type_name(),
-                    self.get_var_value_str(&var, false)
+                    self.get_var_value_str(&var, Format::Default, false)
                 );
             }
         }
@@ -780,14 +777,14 @@ impl DebugSession {
     }
 
     // Get a displayable string from a SBValue
-    fn get_var_value_str(&self, var: &SBValue, is_container: bool) -> String {
+    fn get_var_value_str(&self, var: &SBValue, format: Format, is_container: bool) -> String {
         // TODO: let mut var: Cow<&SBValue> = var.into(); ???
         let mut value_opt: Option<String> = None;
         let mut var2: Option<SBValue> = None;
         let mut var = var;
-        // TODO: formats
-        // TODO: && format == eFormatDefault
-        if self.deref_pointers {
+        var.set_format(format);
+
+        if self.deref_pointers && format == Format::Default {
             let type_class = var.type_().type_class();
             if type_class.intersects(TypeClass::Pointer | TypeClass::Reference) {
                 if var.value_as_unsigned(0) == 0 {
@@ -863,6 +860,30 @@ impl DebugSession {
         summary
     }
 
+    fn get_expr_format(&self, expr: &'a str) -> (&'a str, Option<Format>) {
+        let mut chars = expr.chars();
+        if let Some(ch) = chars.next_back() {
+            if let Some(',') = chars.next_back() {
+                let format = match ch {
+                    'h' => Format::Hex,
+                    'x' => Format::Hex,
+                    'o' => Format::Octal,
+                    'd' => Format::Decimal,
+                    'b' => Format::Binary,
+                    'f' => Format::Float,
+                    'p' => Format::Pointer,
+                    'u' => Format::Unsigned,
+                    's' => Format::CString,
+                    'y' => Format::Bytes,
+                    'Y' => Format::BytesWithASCII,
+                    _ => return (expr, None),
+                };
+                return (chars.as_str(), Some(format));
+            }
+        }
+        (expr, None)
+    }
+
     fn handle_evaluate(&mut self, args: EvaluateArguments) -> Result<EvaluateResponseBody, Error> {
         let frame: Option<&SBFrame> = args.frame_id.map(|id| {
             let handle = handles::from_i64(id).unwrap();
@@ -895,11 +916,13 @@ impl DebugSession {
             }
         }
         // Expression
+        let (expression, expr_format) = self.get_expr_format(expression);
+        let expr_format = expr_format.unwrap_or(self.global_format);
         self.evaluate_expr_in_frame(expression, frame).map(|val| match val {
             Evaluated::SBValue(sbval) => {
                 let handle = self.get_var_handle(None, expression, &sbval);
                 EvaluateResponseBody {
-                    result: self.get_var_value_str(&sbval, handle.is_some()),
+                    result: self.get_var_value_str(&sbval, expr_format, handle.is_some()),
                     type_: sbval.type_name().map(|s| s.to_owned()),
                     variables_reference: handles::to_i64(handle),
                     ..Default::default()
@@ -1063,11 +1086,26 @@ impl DebugSession {
     }
 
     fn update_display_settings(&mut self, args: &DisplaySettingsArguments) {
+        self.global_format = match args.display_format {
+            None => self.global_format,
+            Some(DisplayFormat::Auto) => Format::Default,
+            Some(DisplayFormat::Decimal) => Format::Decimal,
+            Some(DisplayFormat::Hex) => Format::Hex,
+            Some(DisplayFormat::Binary) => Format::Binary,
+        };
         self.show_disassembly = match args.show_disassembly {
-            None => None,
+            None => self.show_disassembly,
             Some(ShowDisassembly::Auto) => None,
             Some(ShowDisassembly::Always) => Some(true),
             Some(ShowDisassembly::Never) => Some(false),
+        };
+        self.deref_pointers = match args.dereference_pointers {
+            None => self.deref_pointers,
+            Some(v) => v,
+        };
+        self.container_summary = match args.container_summary {
+            None => self.container_summary,
+            Some(v) => v,
         };
     }
 

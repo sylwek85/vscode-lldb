@@ -191,9 +191,19 @@ pub struct Capabilities {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DisplaySettingsArguments {
+    pub display_format: Option<DisplayFormat>,
     pub show_disassembly: Option<ShowDisassembly>,
     pub dereference_pointers: Option<bool>,
     pub container_summary: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub enum DisplayFormat {
+    Auto,
+    Hex,
+    Decimal,
+    Binary,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
