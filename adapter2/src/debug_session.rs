@@ -276,13 +276,6 @@ impl DebugSession {
         self.debugger.set_async(true);
         python::initialize(&self.debugger.command_interpreter());
         let mut command_result = SBCommandReturnObject::new();
-        self.debugger.command_interpreter().handle_command(
-            "command script import '/home/chega/NW/vscode-lldb/adapter2/rust.py'",
-            &mut command_result,
-            false,
-        );
-        info!("{:?}", command_result);
-        //self.debugger.command_interpreter().handle_command("log enable lldb all", &mut command_result, false);
 
         let caps = Capabilities {
             supports_configuration_done_request: true,
@@ -722,43 +715,36 @@ impl DebugSession {
         let mut variables = vec![];
         let mut variables_idx = HashMap::new();
         for var in vars_iter {
-            if let Some(name) = var.name() {
-                let dtype = var.type_name();
-                let value = self.get_var_value_str(&var, self.global_format, container_handle.is_some());
-                let handle = self.get_var_handle(container_handle, name, &var);
+            let name = var.name().unwrap_or_default();
+            let dtype = var.type_name();
+            let value = self.get_var_value_str(&var, self.global_format, container_handle.is_some());
+            let handle = self.get_var_handle(container_handle, name, &var);
 
-                let eval_name = if var.prefer_synthetic_value() {
-                    Some(compose_eval_name(container_eval_name, name))
-                } else {
-                    var.expression_path().map(|p| {
-                        let mut p = p;
-                        p.insert_str(0, "/nat ");
-                        p
-                    })
-                };
-
-                let variable = Variable {
-                    name: name.to_owned(),
-                    value: value,
-                    type_: dtype.map(|v| v.to_owned()),
-                    variables_reference: handles::to_i64(handle),
-                    evaluate_name: eval_name,
-                    ..Default::default()
-                };
-
-                // Ensure proper shadowing
-                if let Some(idx) = variables_idx.get(&variable.name) {
-                    variables[*idx] = variable;
-                } else {
-                    variables_idx.insert(variable.name.clone(), variables.len());
-                    variables.push(variable);
-                }
+            let eval_name = if var.prefer_synthetic_value() {
+                Some(compose_eval_name(container_eval_name, name))
             } else {
-                error!(
-                    "Dropped value {:?} {}",
-                    var.type_name(),
-                    self.get_var_value_str(&var, Format::Default, false)
-                );
+                var.expression_path().map(|p| {
+                    let mut p = p;
+                    p.insert_str(0, "/nat ");
+                    p
+                })
+            };
+
+            let variable = Variable {
+                name: name.to_owned(),
+                value: value,
+                type_: dtype.map(|v| v.to_owned()),
+                variables_reference: handles::to_i64(handle),
+                evaluate_name: eval_name,
+                ..Default::default()
+            };
+
+            // Ensure proper shadowing
+            if let Some(idx) = variables_idx.get(&variable.name) {
+                variables[*idx] = variable;
+            } else {
+                variables_idx.insert(variable.name.clone(), variables.len());
+                variables.push(variable);
             }
         }
         variables
