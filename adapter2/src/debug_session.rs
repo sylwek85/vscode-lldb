@@ -846,7 +846,7 @@ impl DebugSession {
         summary
     }
 
-    fn get_expr_format(&self, expr: &'a str) -> (&'a str, Option<Format>) {
+    fn get_expr_format<'a>(&self, expr: &'a str) -> (&'a str, Option<Format>) {
         let mut chars = expr.chars();
         if let Some(ch) = chars.next_back() {
             if let Some(',') = chars.next_back() {
@@ -958,7 +958,7 @@ impl DebugSession {
     }
 
     // Classify expression by evaluator type
-    fn get_expression_type(&self, expr: &'a str) -> (&'a str, ExprType) {
+    fn get_expression_type<'a>(&self, expr: &'a str) -> (&'a str, ExprType) {
         if expr.starts_with("/nat ") {
             (&expr[5..], ExprType::Native)
         } else if expr.starts_with("/py ") {
