@@ -10,11 +10,11 @@ pub use crate::raw_debug_protocol::{
     Breakpoint, BreakpointEventBody, CompletionsArguments, CompletionsResponseBody, ContinueArguments,
     ContinueResponseBody, ContinuedEventBody, DisconnectArguments, EvaluateArguments, EvaluateResponseBody,
     ExitedEventBody, InitializeRequestArguments, ModuleEventBody, NextArguments, OutputEventBody, PauseArguments,
-    Scope, ScopesArguments, ScopesResponseBody, SetBreakpointsArguments, SetBreakpointsResponseBody,
-    SetExceptionBreakpointsArguments, SetFunctionBreakpointsArguments, SetVariableArguments, SetVariableResponseBody,
-    Source, SourceArguments, SourceBreakpoint, SourceResponseBody, StackFrame, StackTraceArguments,
-    StackTraceResponseBody, StepBackArguments, StepInArguments, StepOutArguments, StoppedEventBody,
-    TerminatedEventBody, Thread, ThreadEventBody, ThreadsResponseBody, Variable, VariablesArguments,
+    RunInTerminalRequestArguments, Scope, ScopesArguments, ScopesResponseBody, SetBreakpointsArguments,
+    SetBreakpointsResponseBody, SetExceptionBreakpointsArguments, SetFunctionBreakpointsArguments,
+    SetVariableArguments, SetVariableResponseBody, Source, SourceArguments, SourceBreakpoint, SourceResponseBody,
+    StackFrame, StackTraceArguments, StackTraceResponseBody, StepBackArguments, StepInArguments, StepOutArguments,
+    StoppedEventBody, TerminatedEventBody, Thread, ThreadEventBody, ThreadsResponseBody, Variable, VariablesArguments,
     VariablesResponseBody,
 };
 
@@ -82,6 +82,8 @@ pub enum RequestArguments {
     disconnect(DisconnectArguments),
     // Custom
     displaySettings(DisplaySettingsArguments),
+    // Reverse
+    runInTerminal(RunInTerminalRequestArguments),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -140,7 +142,7 @@ pub struct LaunchRequestArguments {
     pub cwd: Option<String>,
     pub env: Option<Map<String, String>>,
     pub stdio: Option<Vec<Option<String>>>,
-    pub terminal: Option<Terminal>,
+    pub terminal: Option<TerminalKind>,
     pub stop_on_entry: Option<bool>,
     pub init_commands: Option<Vec<String>>,
     pub pre_run_commands: Option<Vec<String>>,
@@ -186,7 +188,7 @@ pub struct Capabilities {
     pub supports_log_points: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DisplaySettingsArguments {
     pub display_format: Option<DisplayFormat>,
@@ -195,7 +197,7 @@ pub struct DisplaySettingsArguments {
     pub container_summary: Option<bool>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum DisplayFormat {
     Auto,
@@ -204,7 +206,7 @@ pub enum DisplayFormat {
     Binary,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum ShowDisassembly {
     Always,
@@ -219,15 +221,15 @@ pub enum Pid {
     String(String),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 #[serde(rename_all = "camelCase")]
-pub enum Terminal {
+pub enum TerminalKind {
     Integrated,
     External,
     Console,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum Expressions {
     Simple,

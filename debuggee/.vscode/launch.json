@@ -25,6 +25,7 @@
             "program": "${workspaceFolder}/../out/debuggee/rusttypes",
             "args": ["vars"],
             "cwd": "${workspaceFolder}",
+            "terminal": "integrated",
             "initCommands": [
                 "command script import '/home/chega/NW/vscode-lldb/adapter2/rust.py'"
             ],

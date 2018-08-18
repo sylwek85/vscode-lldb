@@ -1,7 +1,8 @@
 use failure;
 use lldb;
+use std::io;
 use std::option;
-use globset;
+use std::error::Error as ErrorTrait;
 
 #[derive(Fail, Debug)]
 pub enum Error {
@@ -22,5 +23,10 @@ impl From<option::NoneError> for Error {
 impl From<lldb::SBError> for Error {
     fn from(sberr: lldb::SBError) -> Self {
         Error::SBError(sberr.message().into())
+    }
+}
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Error::Internal(err.description().into())
     }
 }

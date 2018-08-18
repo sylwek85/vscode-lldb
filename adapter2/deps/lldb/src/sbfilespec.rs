@@ -23,7 +23,7 @@ impl SBFileSpec {
         unsafe { CStr::from_ptr(ptr).to_str().unwrap() }
     }
     pub fn path(&self) -> String {
-        get_string(64, |ptr, size| {
+        get_string(|ptr, size| {
             cpp!(unsafe [self as "SBFileSpec*", ptr as "char*", size as "size_t"] -> u32 as "uint32_t" {
                 return self->GetPath(ptr, size);
             }) as usize

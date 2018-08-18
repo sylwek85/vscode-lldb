@@ -26,6 +26,7 @@ use crate::handles::{self, Handle, HandleTree};
 use crate::must_initialize::{Initialized, MustInitialize, NotInitialized};
 use crate::python;
 use crate::source_map;
+use crate::terminal::Terminal;
 use lldb::*;
 
 pub mod tokio;
@@ -83,6 +84,7 @@ pub enum Evaluated {
 
 pub struct DebugSession {
     send_message: mpsc::Sender<ProtocolMessage>,
+    request_seq: u32,
     shutdown: CancellationSource,
     event_listener: SBListener,
     debugger: MustInitialize<SBDebugger>,
@@ -100,6 +102,7 @@ pub struct DebugSession {
     source_map_cache: HashMap<(Cow<'static, str>, Cow<'static, str>), Option<Rc<String>>>,
     loaded_modules: Vec<SBModule>,
     exit_commands: Option<Vec<String>>,
+    terminal: Option<Terminal>,
 
     global_format: Format,
     show_disassembly: Option<bool>,
@@ -122,6 +125,7 @@ impl DebugSession {
     fn new(send_message: mpsc::Sender<ProtocolMessage>, shutdown: CancellationSource) -> Self {
         DebugSession {
             send_message: send_message,
+            request_seq: 1,
             shutdown: shutdown,
             debugger: NotInitialized,
             target: NotInitialized,
@@ -139,6 +143,8 @@ impl DebugSession {
             source_map_cache: HashMap::new(),
             loaded_modules: Vec::new(),
             exit_commands: None,
+            terminal: None,
+
             global_format: Format::Default,
             show_disassembly: None,
             suppress_missing_files: true,
@@ -269,6 +275,17 @@ impl DebugSession {
         self.send_message
             .try_send(event)
             .map_err(|err| panic!("Could not send event: {}", err));
+    }
+
+    fn send_request(&mut self, args: RequestArguments) {
+        let request = ProtocolMessage::Request(Request {
+            seq: self.request_seq,
+            arguments: args,
+        });
+        self.request_seq += 1;
+        self.send_message
+            .try_send(request)
+            .map_err(|err| panic!("Could not send request: {}", err));
     }
 
     fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<Capabilities, Error> {
@@ -414,8 +431,8 @@ impl DebugSession {
     }
 
     fn complete_launch(&mut self, args: LaunchRequestArguments) -> Result<ResponseBody, Error> {
-        if let Some(commands) = args.pre_run_commands {
-            self.exec_commands(&commands);
+        if let Some(ref commands) = args.pre_run_commands {
+            self.exec_commands(commands);
         }
         let mut launch_info = SBLaunchInfo::new();
 
@@ -423,37 +440,30 @@ impl DebugSession {
         let env: Vec<String> = env::vars().map(|(k, v)| format!("{}={}", k, v)).collect();
         launch_info.set_environment_entries(env.iter().map(|s| s.as_ref()), true);
 
-        if let Some(ds) = args.display_settings {
-            self.update_display_settings(&ds);
+        if let Some(ref ds) = args.display_settings {
+            self.update_display_settings(ds);
         }
-        if let Some(args) = args.args {
+        if let Some(ref args) = args.args {
             launch_info.set_arguments(args.iter().map(|a| a.as_ref()), false);
         }
-        if let Some(env) = args.env {
+        if let Some(ref env) = args.env {
             // TODO: Streaming iterator?
             let env: Vec<String> = env.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
             launch_info.set_environment_entries(env.iter().map(|s| s.as_ref()), true);
         }
-        if let Some(cwd) = args.cwd {
+        if let Some(ref cwd) = args.cwd {
             launch_info.set_working_directory(&cwd);
         }
-        if let Some(stop_on_entry) = args.stop_on_entry {
+        if let Some(ref stop_on_entry) = args.stop_on_entry {
             launch_info.set_launch_flags(launch_info.launch_flags() | LaunchFlag::StopAtEntry);
         }
-        if let Some(source_map) = args.source_map {
+        if let Some(ref source_map) = args.source_map {
             let iter = source_map.iter().map(|(k, v)| (k, v.as_ref()));
             self.source_map = source_map::SourceMap::new(iter)?;
         }
-        launch_info.add_open_file_action(0, "/dev/pts/4", true, false);
-        launch_info.add_open_file_action(1, "/dev/pts/4", false, true);
-        launch_info.add_open_file_action(2, "/dev/pts/4", false, true);
-        // if let Some(stdio) = args.stdio {
-        //     for (i, name) in stdio.enumerate() {
-        //         if let Some(name) = name {
-        //             launch_info.add_open_file_action(fd, name,
-        //         }
-        //     }
-        // }
+
+        self.configure_stdio(&args, &mut launch_info);
+
         launch_info.set_listener(&self.event_listener);
         self.process = Initialized(self.target.launch(&launch_info)?);
         self.process_launched = true;
@@ -462,6 +472,25 @@ impl DebugSession {
         }
         self.exit_commands = args.exit_commands;
         Ok(ResponseBody::launch)
+    }
+
+    fn run_in_vscode_terminal(&mut self, terminal_kind: TerminalKind, mut args: Vec<String>) {
+        let terminal_kind = match terminal_kind {
+            TerminalKind::External => "external",
+            TerminalKind::Integrated => {
+                args.insert(0, "\n".into());
+                "integrated"
+            }
+            _ => unreachable!(),
+        };
+        let req_args = RunInTerminalRequestArguments {
+            args: args,
+            cwd: String::new(),
+            env: None,
+            kind: Some(terminal_kind.to_owned()),
+            title: Some("Debuggee".to_owned()),
+        };
+        self.send_request(RequestArguments::runInTerminal(req_args));
     }
 
     fn handle_attach(&mut self, args: AttachRequestArguments) -> Result<Box<AsyncResponder>, Error> {
@@ -475,6 +504,45 @@ impl DebugSession {
             SBTargetEvent::BroadcastBitBreakpointChanged | SBTargetEvent::BroadcastBitModulesLoaded,
         );
         Ok(target)
+    }
+
+    fn configure_stdio(&mut self, args: &LaunchRequestArguments, launch_info: &mut SBLaunchInfo) -> Result<(), Error> {
+        let tty_name = match args.terminal {
+            Some(ref terminal_kind) => match terminal_kind {
+                TerminalKind::External | TerminalKind::Integrated => {
+                    let terminal = Terminal::create(|args| self.run_in_vscode_terminal(terminal_kind.clone(), args))?;
+                    let tty_name = terminal.tty_name().to_owned();
+                    self.terminal = Some(terminal);
+                    Some(tty_name)
+                }
+                TerminalKind::Console => None,
+            },
+            None => None,
+        };
+
+        let mut stdio = match args.stdio {
+            Some(ref stdio) => stdio.clone(),
+            None => vec![],
+        };
+        // Pad to at least 3 entries
+        while stdio.len() < 3 {
+            stdio.push(None)
+        }
+
+        for (fd, name) in stdio.iter().enumerate() {
+            let (read, write) = match fd {
+                0 => (true, false),
+                1 => (false, true),
+                2 => (false, true),
+                _ => (true, true),
+            };
+            let name = name.as_ref().or(tty_name.as_ref());
+            if let Some(name) = name {
+                launch_info.add_open_file_action(fd as i32, name, read, write);
+            }
+        }
+
+        Ok(())
     }
 
     fn exec_commands(&self, commands: &[String]) {

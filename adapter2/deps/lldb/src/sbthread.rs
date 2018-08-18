@@ -26,7 +26,7 @@ impl SBThread {
         })
     }
     pub fn stop_description(&self) -> String {
-        get_string(64, |ptr, size| {
+        get_string(|ptr, size| {
             cpp!(unsafe [self as "SBThread*", ptr as "char*", size as "size_t"] -> usize as "size_t" {
                 return self->GetStopDescription(ptr, size);
             })

@@ -53,6 +53,7 @@ mod handles;
 mod must_initialize;
 mod python;
 mod source_map;
+mod terminal;
 mod wire_protocol;
 
 macro_rules! extract {
