@@ -27,8 +27,6 @@ pub enum ProtocolMessage {
     Response(Response),
     #[serde(rename = "event")]
     Event(Event),
-    #[serde(skip)]
-    Unknown(serde_json::Value),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -141,7 +139,7 @@ pub struct LaunchRequestArguments {
     pub args: Option<Vec<String>>,
     pub cwd: Option<String>,
     pub env: Option<Map<String, String>>,
-    pub stdio: Option<Vec<String>>,
+    pub stdio: Option<Vec<Option<String>>>,
     pub terminal: Option<Terminal>,
     pub stop_on_entry: Option<bool>,
     pub init_commands: Option<Vec<String>>,
@@ -222,7 +220,6 @@ pub enum Pid {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(untagged)]
 #[serde(rename_all = "camelCase")]
 pub enum Terminal {
     Integrated,
@@ -231,7 +228,6 @@ pub enum Terminal {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(untagged)]
 #[serde(rename_all = "camelCase")]
 pub enum Expressions {
     Simple,

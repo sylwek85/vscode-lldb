@@ -10,6 +10,11 @@ impl SBLaunchInfo {
             return SBLaunchInfo(nullptr);
         })
     }
+    pub fn clear(&self) {
+        cpp!(unsafe [self as "SBLaunchInfo*"] {
+            self->Clear();
+        })
+    }
     pub fn set_listener(&self, listener: &SBListener) {
         cpp!(unsafe [self as "SBLaunchInfo*", listener as "SBListener*"] {
             self->SetListener(*listener);
@@ -38,6 +43,30 @@ impl SBLaunchInfo {
             cpp!(unsafe [self as "SBLaunchInfo*", cwd as "const char*"] {
                 self->SetWorkingDirectory(cwd);
             });
+        })
+    }
+    pub fn add_open_file_action(&self, fd: i32, path: &str, read: bool, write: bool) -> bool {
+        with_cstr(path, |path| {
+            cpp!(unsafe [self as "SBLaunchInfo*", fd as "int32_t", path as "const char*",
+                         read as "bool", write as "bool"] -> bool as "bool" {
+                return self->AddOpenFileAction(fd, path, read, write);
+            })
+        })
+    }
+    pub fn add_duplicate_file_action(&self, fd: i32, dup_fd: i32) -> bool {
+        cpp!(unsafe [self as "SBLaunchInfo*", fd as "int32_t", dup_fd as "int32_t"] -> bool as "bool" {
+            return self->AddDuplicateFileAction(fd, dup_fd);
+        })
+    }
+    pub fn add_suppress_file_action(&self, fd: i32, read: bool, write: bool) -> bool {
+        cpp!(unsafe [self as "SBLaunchInfo*", fd as "int32_t",
+                     read as "bool", write as "bool"] -> bool as "bool" {
+            return self->AddSuppressFileAction(fd, read, write);
+        })
+    }
+    pub fn add_close_file_action(&self, fd: i32) -> bool {
+        cpp!(unsafe [self as "SBLaunchInfo*", fd as "int32_t"] -> bool as "bool" {
+            return self->AddCloseFileAction(fd);
         })
     }
     pub fn set_launch_flags(&self, flags: LaunchFlag) {

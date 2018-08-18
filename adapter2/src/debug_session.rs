@@ -8,6 +8,7 @@ use std::boxed::FnBox;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fmt::Write;
 use std::mem;
 use std::option;
@@ -151,7 +152,6 @@ impl DebugSession {
             ProtocolMessage::Request(request) => self.handle_request(request),
             ProtocolMessage::Response(response) => self.handle_response(response),
             ProtocolMessage::Event(event) => error!("No handler for event message: {:?}", event),
-            ProtocolMessage::Unknown(unknown) => error!("Received unknown message: {:?}", unknown),
         };
     }
 
@@ -418,6 +418,11 @@ impl DebugSession {
             self.exec_commands(&commands);
         }
         let mut launch_info = SBLaunchInfo::new();
+
+        // TODO: Streaming iterator?
+        let env: Vec<String> = env::vars().map(|(k, v)| format!("{}={}", k, v)).collect();
+        launch_info.set_environment_entries(env.iter().map(|s| s.as_ref()), true);
+
         if let Some(ds) = args.display_settings {
             self.update_display_settings(&ds);
         }
@@ -425,6 +430,7 @@ impl DebugSession {
             launch_info.set_arguments(args.iter().map(|a| a.as_ref()), false);
         }
         if let Some(env) = args.env {
+            // TODO: Streaming iterator?
             let env: Vec<String> = env.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
             launch_info.set_environment_entries(env.iter().map(|s| s.as_ref()), true);
         }
@@ -438,6 +444,16 @@ impl DebugSession {
             let iter = source_map.iter().map(|(k, v)| (k, v.as_ref()));
             self.source_map = source_map::SourceMap::new(iter)?;
         }
+        launch_info.add_open_file_action(0, "/dev/pts/4", true, false);
+        launch_info.add_open_file_action(1, "/dev/pts/4", false, true);
+        launch_info.add_open_file_action(2, "/dev/pts/4", false, true);
+        // if let Some(stdio) = args.stdio {
+        //     for (i, name) in stdio.enumerate() {
+        //         if let Some(name) = name {
+        //             launch_info.add_open_file_action(fd, name,
+        //         }
+        //     }
+        // }
         launch_info.set_listener(&self.event_listener);
         self.process = Initialized(self.target.launch(&launch_info)?);
         self.process_launched = true;
@@ -1248,6 +1264,7 @@ impl DebugSession {
             match self.source_map_cache.get(&(directory.into(), filename.into())) {
                 Some(localized) => localized.clone(),
                 None => {
+                    debug!("filespec={:?}", filespec);
                     let mut localized = self.source_map.to_local(filespec.path());
                     if let Some(ref path) = localized {
                         if self.suppress_missing_files && !path.is_file() {

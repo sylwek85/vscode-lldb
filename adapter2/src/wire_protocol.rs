@@ -61,12 +61,8 @@ impl codec::Decoder for Codec {
                         match serde_json::from_slice(&message_bytes) {
                             Ok(message) => return Ok(Some(message)),
                             Err(err) => {
-                                if (err.is_data()) {
-                                    // Try reading as generic JSON value.
-                                    if let Ok(message) = serde_json::from_slice::<Value>(&message_bytes) {
-                                        return Ok(Some(ProtocolMessage::Unknown(message)));
-                                    }
-                                }
+                                error!("Could not deserialize: {}", err);
+                                return Err(io::Error::new(io::ErrorKind::InvalidData, Box::new(err)))
                             }
                         }
                     }
