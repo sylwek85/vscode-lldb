@@ -255,12 +255,15 @@ impl DebugSession {
                 message: None,
                 body: Some(body),
             }),
-            Err(err) => ProtocolMessage::Response(Response {
-                request_seq: request_seq,
-                success: false,
-                body: None,
-                message: Some(format!("{}", err)),
-            }),
+            Err(err) => {
+                error!("{}", err);
+                ProtocolMessage::Response(Response {
+                    request_seq: request_seq,
+                    success: false,
+                    body: None,
+                    message: Some(format!("{}", err)),
+                })
+            }
         };
         self.send_message
             .try_send(response)
@@ -463,6 +466,8 @@ impl DebugSession {
         }
 
         self.configure_stdio(&args, &mut launch_info);
+
+        env::set_var("LLDB_DEBUGSERVER_PATH", "/usr/bin/lldb-server");
 
         launch_info.set_listener(&self.event_listener);
         self.process = Initialized(self.target.launch(&launch_info)?);

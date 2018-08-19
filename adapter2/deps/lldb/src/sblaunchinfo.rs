@@ -79,6 +79,11 @@ impl SBLaunchInfo {
             return self->GetLaunchFlags();
         })
     }
+    pub fn set_executable_file(&self, exe_file: &SBFileSpec, add_as_first_arg: bool) {
+        cpp!(unsafe [self as "SBLaunchInfo*", exe_file as "SBFileSpec*", add_as_first_arg as "bool"] {
+            return self->SetExecutableFile(*exe_file, add_as_first_arg);
+        })
+    }
 }
 
 bitflags! {

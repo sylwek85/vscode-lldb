@@ -25,6 +25,7 @@
 			"env": {
 				"PATH": "${env:PATH}:/usr/lib/llvm-6.0/bin",
 				"RUST_LOG": "debug",
+				"RUST_LOG_STYLE": "always",
 				"RUST_BACKTRACE": "1",
 			},
 			"sourceLanguages": [

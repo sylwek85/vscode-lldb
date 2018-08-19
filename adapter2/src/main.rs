@@ -66,7 +66,7 @@ macro_rules! extract {
 }
 
 fn main() {
-    env_logger::init();
+    env_logger::Builder::from_default_env().init();
     SBDebugger::initialize();
 
     let addr = "127.0.0.1:4711".parse().unwrap();

@@ -1,4 +1,5 @@
 use super::*;
+use std::path::Path;
 
 cpp_class!(pub unsafe struct SBFileSpec as "SBFileSpec");
 
@@ -27,6 +28,19 @@ impl SBFileSpec {
             cpp!(unsafe [self as "SBFileSpec*", ptr as "char*", size as "size_t"] -> u32 as "uint32_t" {
                 return self->GetPath(ptr, size);
             }) as usize
+        })
+    }
+}
+
+impl<T> From<T> for SBFileSpec
+where
+    T: AsRef<Path>,
+{
+    fn from(path: T) -> Self {
+        with_cstr(path.as_ref().to_str().unwrap(), |path| {
+            cpp!(unsafe [path as "const char*"] -> SBFileSpec as "SBFileSpec" {
+                return SBFileSpec(path);
+            })
         })
     }
 }
