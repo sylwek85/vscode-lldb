@@ -23,7 +23,6 @@
 			"request": "launch",
 			"program": "${workspaceFolder}/target/debug/codelldb2",
 			"env": {
-				"PATH": "${env:PATH}:/usr/lib/llvm-6.0/bin",
 				"RUST_LOG": "debug",
 				"RUST_LOG_STYLE": "always",
 				"RUST_BACKTRACE": "1",
@@ -34,7 +33,7 @@
 			"terminal": "integrated"
 		},
 		{
-			"name": "test codelldb2",
+			"name": "test lldb",
 			"preLaunchTask": "cargo build",
 			"type": "lldb",
 			"request": "launch",
@@ -42,11 +41,8 @@
 				"args": [
 					"test",
 					"--no-run",
-					"-p", "codelldb2"
-				],
-				"filter": {
-					"name": "codelldb2"
-				}
+					"-p", "lldb"
+				]
 			},
 			"args": ["--nocapture", "--test-threads=1"],
 			"env": {

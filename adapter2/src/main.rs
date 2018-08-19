@@ -1,112 +1,48 @@
-#![feature(rust_2018_preview)]
-#![feature(try_trait)]
-#![feature(fnbox)]
-#![feature(nll)]
-#![allow(unused)]
-
-#[macro_use]
-extern crate serde_derive;
-extern crate serde;
-#[macro_use]
-extern crate serde_json;
-#[macro_use]
-extern crate failure_derive;
-extern crate debug_protocol as raw_debug_protocol;
-extern crate failure;
-extern crate lldb;
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate lazy_static;
-extern crate bytes;
 extern crate env_logger;
-extern crate globset;
-extern crate regex;
-extern crate superslice;
 
-extern crate futures;
-extern crate tokio;
-extern crate tokio_codec;
-extern crate tokio_io;
-extern crate tokio_threadpool;
-
+use std::ffi::CStr;
 use std::mem;
+use std::os::raw::{c_char, c_int, c_void};
 
-use futures::prelude::*;
-use tokio::prelude::*;
-
-use futures::future::{lazy, poll_fn};
-use futures::sync::mpsc;
-use tokio::io;
-use tokio::net::TcpListener;
-use tokio_codec::Decoder;
-use tokio_threadpool::blocking;
-
-use lldb::*;
-
-mod cancellation;
-mod debug_protocol;
-mod debug_session;
-mod disassembly;
-mod error;
-mod handles;
-mod must_initialize;
-mod python;
-mod source_map;
-mod terminal;
-mod wire_protocol;
-
-macro_rules! extract {
-    ($compound:ident => $pattern:pat => $vars:expr) => {
-        match $compound {
-            $pattern => $vars,
-            _ => unreachable!(),
-        }
-    };
+#[link(name = "dl")]
+extern "C" {
+    fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
+    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+    fn dlerror() -> *const c_char;
 }
+
+const RTLD_LAZY: c_int = 0x00001;
+const RTLD_GLOBAL: c_int = 0x00100;
 
 fn main() {
     env_logger::Builder::from_default_env().init();
-    SBDebugger::initialize();
 
-    let addr = "127.0.0.1:4711".parse().unwrap();
-    let listener = TcpListener::bind(&addr).unwrap();
-    println!("Listening on port {}", addr.port());
-
-    let server = listener
-        .incoming()
-        .map_err(|err| {
-            error!("accept error: {:?}", err);
-            panic!()
-        }).take(1)
-        .for_each(|conn| {
-            conn.set_nodelay(true);
-            let (to_client, from_client) = wire_protocol::Codec::new().framed(conn).split();
-            let (to_session, from_session) = debug_session::tokio::DebugSessionTokio::new().split();
-
-            let client_to_session = from_client.map_err(|_| ()).forward(to_session).then(|r| {
-                info!("### client_to_session resolved");
-                Ok(())
-            });
-            tokio::spawn(client_to_session);
-
-            let session_to_client = from_session
-                .map_err(|err| io::Error::new(io::ErrorKind::Other, "DebugSession error"))
-                .forward(to_client)
-                .then(|r| {
-                    info!("### session_to_client resolved");
-                    Ok(())
-                });
-
-            session_to_client
-        }).then(|r| {
-            info!("### server resolved {:?}", r);
-            Ok(())
-        });
-
-    tokio::run(server);
-
-    info!("Exited");
-
-    SBDebugger::terminate();
+    unsafe {
+        let liblldb = dlopen(
+            b"/usr/lib/llvm-6.0/lib/liblldb-6.0.so\0".as_ptr() as *const c_char,
+            RTLD_LAZY | RTLD_GLOBAL,
+        );
+        if liblldb.is_null() {
+            panic!("{:?}", CStr::from_ptr(dlerror()));
+        }
+        let libcodelldb = dlopen(
+            b"/home/chega/NW/vscode-lldb/target/debug/libcodelldb2.so\0".as_ptr() as *const c_char,
+            RTLD_LAZY,
+        );
+        if libcodelldb.is_null() {
+            panic!("{:?}", CStr::from_ptr(dlerror()));
+        }
+        let entry = dlsym(libcodelldb, b"entry\0".as_ptr() as *const c_char);
+        if entry.is_null() {
+            panic!("{:?}", CStr::from_ptr(dlerror()));
+        }
+        let entry: unsafe extern "C" fn() = mem::transmute(entry);
+        entry();
+    }
+    // let _liblldb = Library::new("/usr/lib/llvm-6.0/lib/liblldb-6.0.so").unwrap();
+    // let libcodelldb = Library::new("/home/chega/NW/vscode-lldb/target/debug/libcodelldb2.so").unwrap();
+    // unsafe {
+    //     let entry: Symbol<unsafe extern fn()> = libcodelldb.get(b"entry\0").unwrap();
+    //     entry();
+    // }
 }
