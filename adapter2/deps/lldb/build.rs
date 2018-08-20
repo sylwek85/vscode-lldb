@@ -11,4 +11,9 @@ fn main() {
         );
         println!("cargo:rustc-link-lib=framework={}", "LLDB");
     }
+    #[cfg(windows)]
+    {
+        println!("cargo:rustc-link-search={}", "C:\\NW\\ll\\build\\lib");
+        println!("cargo:rustc-link-lib={}", "liblldb");
+    }
 }

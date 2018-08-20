@@ -504,6 +504,7 @@ impl DebugSession {
 
     fn create_target(&self, program: &str) -> Result<SBTarget, Error> {
         let target = self.debugger.create_target(program, None, None, false)?;
+        // TODO: handle .exe
         target.broadcaster().add_listener(
             &self.event_listener,
             SBTargetEvent::BroadcastBitBreakpointChanged | SBTargetEvent::BroadcastBitModulesLoaded,
