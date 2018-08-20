@@ -20,6 +20,7 @@ fn main() {
     unsafe {
         let liblldb = dlopen(
             b"/usr/lib/llvm-6.0/lib/liblldb-6.0.so\0".as_ptr() as *const c_char,
+            //b"/Library/Developer/CommandLineTools/Library/PrivateFrameworks/LLDB.framework/LLDB\0".as_ptr() as *const c_char,
             RTLD_LAZY | RTLD_GLOBAL,
         );
         if liblldb.is_null() {
@@ -27,6 +28,7 @@ fn main() {
         }
         let libcodelldb = dlopen(
             b"/home/chega/NW/vscode-lldb/target/debug/libcodelldb2.so\0".as_ptr() as *const c_char,
+            //b"/Users/chega/NW/vscode-lldb/target/debug/libcodelldb2.dylib\0".as_ptr() as *const c_char,
             RTLD_LAZY,
         );
         if libcodelldb.is_null() {
@@ -39,10 +41,4 @@ fn main() {
         let entry: unsafe extern "C" fn() = mem::transmute(entry);
         entry();
     }
-    // let _liblldb = Library::new("/usr/lib/llvm-6.0/lib/liblldb-6.0.so").unwrap();
-    // let libcodelldb = Library::new("/home/chega/NW/vscode-lldb/target/debug/libcodelldb2.so").unwrap();
-    // unsafe {
-    //     let entry: Symbol<unsafe extern fn()> = libcodelldb.get(b"entry\0").unwrap();
-    //     entry();
-    // }
 }
