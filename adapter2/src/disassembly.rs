@@ -60,8 +60,12 @@ impl AddressSpace {
             None => {
                 start_addr = addr.clone();
                 instructions = self.target.read_instructions(&start_addr, NO_SYMBOL_INSTRUCTIONS + 1);
-                let last_instr = instructions.instruction_at_index((instructions.len() - 1) as u32);
-                end_addr = last_instr.address();
+                end_addr = if instructions.len() > 0 {
+                    let last_instr = instructions.instruction_at_index((instructions.len() - 1) as u32);
+                    last_instr.address()
+                } else {
+                    start_addr.clone()
+                };
             }
         }
         self.add(start_addr, end_addr, instructions)
