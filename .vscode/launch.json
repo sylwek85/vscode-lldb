@@ -23,6 +23,7 @@
 			"request": "launch",
 			"program": "${workspaceFolder}/target/debug/codelldb2",
 			"env": {
+				//"PATH": "${env:PATH};C:\\Python37-64",
 				"RUST_LOG": "debug",
 				"RUST_LOG_STYLE": "always",
 				"RUST_BACKTRACE": "1",
@@ -31,6 +32,22 @@
 				"cpp", "rust"
 			],
 			"terminal": "integrated"
+		},
+		{
+			"name": "codelldb2 cppvsdbg",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program":  "${workspaceFolder}/target/debug/codelldb2.exe",
+			"args": [],
+			"stopAtEntry": false,
+			"cwd": "${workspaceFolder}",
+			"environment": [
+				{ "name": "PATH", "value":"${env:PATH};C:\\Python37-64" },
+				{ "name":"RUST_LOG", "value":"debug"},
+				{ "name":"RUST_LOG_STYLE", "value":"always"},
+				{ "name":"RUST_BACKTRACE", "value":"full"},
+			],
+			"externalConsole": true
 		},
 		{
 			"name": "test lldb",

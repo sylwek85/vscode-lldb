@@ -467,9 +467,10 @@ impl DebugSession {
 
         self.configure_stdio(&args, &mut launch_info);
 
-        env::set_var("LLDB_DEBUGSERVER_PATH", "/usr/bin/lldb-server");
+        //env::set_var("LLDB_DEBUGSERVER_PATH", "/usr/bin/lldb-server");
 
         launch_info.set_listener(&self.event_listener);
+
         self.process = Initialized(self.target.launch(&launch_info)?);
         self.process_launched = true;
         if let Some(commands) = args.post_run_commands {
@@ -1293,8 +1294,8 @@ impl DebugSession {
             thread_id: stopped_thread.map(|t| t.thread_id() as i64),
         }));
 
-        let interpreter = self.debugger.command_interpreter();
-        python::modules_loaded(&interpreter, &mut self.loaded_modules.iter());
+        // let interpreter = self.debugger.command_interpreter();
+        // python::modules_loaded(&interpreter, &mut self.loaded_modules.iter());
         self.loaded_modules.clear();
     }
 

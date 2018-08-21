@@ -49,7 +49,7 @@ impl DebugSessionTokio {
                     })
                 }).map_err(|_| ())
             }).then(|r| {
-                info!("### sink_to_inner resolved");
+                info!("### sink_to_inner resolved {:?}", r);
                 r
             });
         tokio::spawn(sink_to_inner);
@@ -69,6 +69,7 @@ impl DebugSessionTokio {
                     event = SBEvent::new();
                 }
             }
+            info!("cancelled?");
         });
         // Dispatch incoming events to inner.handle_debug_event()
         let inner2 = inner.clone();
@@ -77,7 +78,7 @@ impl DebugSessionTokio {
                 inner2.lock().unwrap().handle_debug_event(event);
                 Ok(())
             }).then(|r| {
-                info!("### event_listener_to_inner resolved");
+                info!("### event_listener_to_inner resolved: {:?}", r);
                 r
             });
         tokio::spawn(event_listener_to_inner);

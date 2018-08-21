@@ -8,7 +8,19 @@
             "program": "${workspaceFolder}/../out/debuggee/debuggee",
             "args": ["vars"],
             "cwd": "${workspaceFolder}"
-        },        
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Normal rusttypes",
+            "program": "${workspaceFolder}/../out/debuggee/rusttypes.exe",
+            "args": ["vars"],
+            "cwd": "${workspaceFolder}",
+            "terminal": "console",
+            "sourceLanguages": [
+                "rust"
+            ]
+        },
         {
             "type": "lldb",
             "request": "launch",
@@ -22,12 +34,13 @@
             "type": "lldb",
             "request": "launch",
             "name": "CodeLLDB2 rusttypes",
-            "program": "${workspaceFolder}/../out/debuggee/rusttypes",
+            "program": "${workspaceFolder}/../out/debuggee/rusttypes.exe",
             "args": ["vars"],
             "cwd": "${workspaceFolder}",
-            "terminal": "integrated",
+            "stopOnEntry": false,
+            //"terminal": "integrated",
             "initCommands": [
-                "command script import '/home/chega/NW/vscode-lldb/adapter2/rust.py'"
+                //"command script import '/home/chega/NW/vscode-lldb/adapter2/rust.py'"
             ],
             "debugServer": 4711
         }
