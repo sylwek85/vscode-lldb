@@ -34,7 +34,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "CodeLLDB2 rusttypes",
-            "program": "${workspaceFolder}/../out/debuggee/rusttypes.exe",
+            "program": "${workspaceFolder}/../out/debuggee/rusttypes",
             "args": ["vars"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,

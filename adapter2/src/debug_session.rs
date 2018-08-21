@@ -504,8 +504,18 @@ impl DebugSession {
     }
 
     fn create_target(&self, program: &str) -> Result<SBTarget, Error> {
-        let target = self.debugger.create_target(program, None, None, false)?;
-        // TODO: handle .exe
+        let target = match self.debugger.create_target(program, None, None, false) {
+            Ok(target) => target,
+            // TODO: use selected platform instead of cfg!(windows)
+            Err(_) if cfg!(windows) && !program.ends_with(".exe") => {
+                        let program = format!("{}.exe", program);
+                        match self.debugger.create_target(&program, None, None, false) {
+                            Ok(target) => target,
+                            Err(err) => return Err(err.into())
+                        }
+                    },
+            Err(err) => return Err(err.into())
+        };
         target.broadcaster().add_listener(
             &self.event_listener,
             SBTargetEvent::BroadcastBitBreakpointChanged | SBTargetEvent::BroadcastBitModulesLoaded,
