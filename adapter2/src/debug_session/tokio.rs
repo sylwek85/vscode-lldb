@@ -55,15 +55,16 @@ impl DebugSessionTokio {
         tokio::spawn(sink_to_inner);
 
         // Create a thread listening on inner's event_listener
-        let (mut sender, mut receiver) = mpsc::channel(10);
+        let (mut sender, mut receiver) = mpsc::channel(100);
         let listener = inner.lock().unwrap().event_listener.clone();
         let token2 = shutdown_token.clone();
         thread::spawn(move || {
             let mut event = SBEvent::new();
-            while sender.poll_ready().is_ok() && !token2.is_cancelled() {
+            while !token2.is_cancelled() {
                 if listener.wait_for_event(1, &mut event) {
-                    if sender.try_send(event).is_err() {
-                        break;
+                    match sender.try_send(event) {
+                        Err(err) => error!("Could not send event to DebugSession: {:?}", err),
+                        Ok(_) => {}
                     }
                     event = SBEvent::new();
                 }
