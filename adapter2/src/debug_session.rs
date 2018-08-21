@@ -508,13 +508,13 @@ impl DebugSession {
             Ok(target) => target,
             // TODO: use selected platform instead of cfg!(windows)
             Err(_) if cfg!(windows) && !program.ends_with(".exe") => {
-                        let program = format!("{}.exe", program);
-                        match self.debugger.create_target(&program, None, None, false) {
-                            Ok(target) => target,
-                            Err(err) => return Err(err.into())
-                        }
-                    },
-            Err(err) => return Err(err.into())
+                let program = format!("{}.exe", program);
+                match self.debugger.create_target(&program, None, None, false) {
+                    Ok(target) => target,
+                    Err(err) => return Err(err.into()),
+                }
+            }
+            Err(err) => return Err(err.into()),
         };
         target.broadcaster().add_listener(
             &self.event_listener,
@@ -1085,8 +1085,14 @@ impl DebugSession {
         match frame {
             Some(frame) => SBExecutionContext::from_frame(&frame),
             None => match self.process {
-                Initialized(ref process) => SBExecutionContext::from_process(&process),
-                NotInitialized => SBExecutionContext::new(),
+                Initialized(ref process) => {
+                    let thread = process.selected_thread();
+                    SBExecutionContext::from_thread(&thread)
+                }
+                NotInitialized => {
+                    let target = self.debugger.selected_target();
+                    SBExecutionContext::from_target(&target)
+                },
             },
         }
     }
@@ -1304,8 +1310,8 @@ impl DebugSession {
             thread_id: stopped_thread.map(|t| t.thread_id() as i64),
         }));
 
-        // let interpreter = self.debugger.command_interpreter();
-        // python::modules_loaded(&interpreter, &mut self.loaded_modules.iter());
+        let interpreter = self.debugger.command_interpreter();
+        python::modules_loaded(&interpreter, &mut self.loaded_modules.iter());
         self.loaded_modules.clear();
     }
 

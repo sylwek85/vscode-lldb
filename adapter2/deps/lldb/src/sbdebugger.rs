@@ -25,6 +25,11 @@ impl SBDebugger {
             return self->IsValid();
         })
     }
+    pub fn clear(&self) {
+        cpp!(unsafe [self as "SBDebugger*"] {
+            return self->Clear();
+        })
+    }
     pub fn async(&self) -> bool {
         cpp!(unsafe [self as "SBDebugger*"]-> bool as "bool" {
             return self->GetAsync();
@@ -56,9 +61,39 @@ impl SBDebugger {
             })
         })
     }
+    pub fn selected_target(&self) -> SBTarget {
+        cpp!(unsafe [self as "SBDebugger*"] -> SBTarget as "SBTarget" {
+            return self->GetSelectedTarget();
+        })
+    }
+    pub fn set_selected_target(&self, target: &SBTarget) {
+        cpp!(unsafe [self as "SBDebugger*", target as "SBTarget*"] {
+            self->SetSelectedTarget(*target);
+        })
+    }
+    pub fn selected_platform(&self) -> SBPlatform {
+        cpp!(unsafe [self as "SBDebugger*"] -> SBPlatform as "SBPlatform" {
+            return self->GetSelectedPlatform();
+        })
+    }
+    pub fn set_selected_platform(&self, platform: &SBPlatform) {
+        cpp!(unsafe [self as "SBDebugger*", platform as "SBPlatform*"] {
+            self->SetSelectedPlatform(*platform);
+        })
+    }
     pub fn command_interpreter(&self) -> SBCommandInterpreter {
         cpp!(unsafe [self as "SBDebugger*"] ->  SBCommandInterpreter as "SBCommandInterpreter" {
             return self->GetCommandInterpreter();
+        })
+    }
+}
+
+impl fmt::Debug for SBDebugger {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBDebugger*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
         })
     }
 }

@@ -58,3 +58,13 @@ impl SBTarget {
         })
     }
 }
+
+impl fmt::Debug for SBTarget {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBTarget*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr, eDescriptionLevelBrief);
+            })
+        })
+    }
+}

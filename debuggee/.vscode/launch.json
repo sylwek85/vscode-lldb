@@ -38,9 +38,9 @@
             "args": ["vars"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
-            //"terminal": "integrated",
+            "terminal": "integrated",
             "initCommands": [
-                //"command script import '/home/chega/NW/vscode-lldb/adapter2/rust.py'"
+                "command script import '/home/chega/NW/vscode-lldb/adapter2/rust.py'"
             ],
             "debugServer": 4711
         }
