@@ -2,6 +2,7 @@ use std::mem;
 use std::os::raw::{c_int, c_ulong, c_void};
 use std::slice;
 use std::fmt::Write;
+use std::env;
 
 use lldb::*;
 use regex;
@@ -9,12 +10,17 @@ use regex;
 use crate::debug_session::Evaluated;
 use crate::lldb::*;
 use crate::must_initialize::*;
+use crate::error::Error;
 
-pub fn initialize(interpreter: &SBCommandInterpreter) {
+pub fn initialize(interpreter: &SBCommandInterpreter) -> Result<(), Error> {
+    let mut init_script = env::current_exe()?;
+    init_script.set_file_name("codelldb.py");
+
     let mut command_result = SBCommandReturnObject::new();
-    let command = format!("command script import '/home/chega/NW/vscode-lldb/adapter2/codelldb.py'");
+    let command = format!("command script import '{}'", init_script.to_str()?);
     interpreter.handle_command(&command, &mut command_result, false);
     info!("{:?}", command_result);
+    Ok(())
 }
 
 type EvalResult = Result<Evaluated, String>;
