@@ -97,3 +97,17 @@ impl Default for EvaluateResponseBody {
         }
     }
 }
+
+impl Default for OutputEventBody {
+    fn default() -> Self {
+        OutputEventBody {
+            output: String::new(),
+            category: None,
+            data: None,
+            line: None,
+            column: None,
+            source: None,
+            variables_reference: None,
+        }
+    }
+}

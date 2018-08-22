@@ -291,6 +291,21 @@ impl DebugSession {
             .map_err(|err| panic!("Could not send request: {}", err));
     }
 
+    fn console_message(&mut self, output: impl Into<String>) {
+        self.send_event(EventBody::output(OutputEventBody {
+            output: format!("{}\n", output.into()),
+            ..Default::default()
+        }));
+    }
+
+    fn console_error(&mut self, output: impl Into<String>) {
+        self.send_event(EventBody::output(OutputEventBody {
+            output: format!("{}\n", output.into()),
+            category: Some("stderr".into()),
+            ..Default::default()
+        }));
+    }
+
     fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<Capabilities, Error> {
         self.debugger = Initialized(SBDebugger::create(false));
         self.debugger.set_async(true);
@@ -457,8 +472,10 @@ impl DebugSession {
         if let Some(ref cwd) = args.cwd {
             launch_info.set_working_directory(&cwd);
         }
-        if let Some(ref stop_on_entry) = args.stop_on_entry {
-            launch_info.set_launch_flags(launch_info.launch_flags() | LaunchFlag::StopAtEntry);
+        if let Some(stop_on_entry) = args.stop_on_entry {
+            if stop_on_entry {
+                launch_info.set_launch_flags(launch_info.launch_flags() | LaunchFlag::StopAtEntry);
+            }
         }
         if let Some(ref source_map) = args.source_map {
             let iter = source_map.iter().map(|(k, v)| (k, v.as_ref()));
@@ -1092,7 +1109,7 @@ impl DebugSession {
                 NotInitialized => {
                     let target = self.debugger.selected_target();
                     SBExecutionContext::from_target(&target)
-                },
+                }
             },
         }
     }
@@ -1200,6 +1217,19 @@ impl DebugSession {
             None => self.container_summary,
             Some(v) => v,
         };
+        // Show current settings
+        let show_disasm = match self.show_disassembly {
+            None => "auto",
+            Some(true) => "always",
+            Some(false) => "never",
+        };
+        let msg = format!("Display settings: variable format={}, show disassembly={}, numeric pointer values={}, container summaries={}.",
+            format!("{:?}", self.global_format).to_lowercase(),
+            show_disasm,
+            if self.deref_pointers { "on" } else { "off" },
+            if self.container_summary { "on" } else { "off" }
+        );
+        self.console_message(msg);
     }
 
     // Fake target start/stop to force VSCode to refresh UI state.

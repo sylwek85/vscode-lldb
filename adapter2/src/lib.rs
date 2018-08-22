@@ -106,8 +106,6 @@ pub extern "C" fn entry() {
         });
 
     tokio::run(server);
-
-    info!("Exited");
-
+    debug!("Event loop terminated.");
     SBDebugger::terminate();
 }

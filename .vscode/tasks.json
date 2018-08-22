@@ -46,6 +46,12 @@
     },
     {
       "type": "shell",
+      "label": "postbuild",
+      "command": "python ${workspaceFolder}/tools/post_build.py ${workspaceFolder}",
+      "group": "build"
+    },
+    {
+      "type": "shell",
       "label": "cargo check",
       "command": "cargo",
       "args": [
@@ -61,7 +67,7 @@
       "label": "cargo test",
       "command": "cargo",
       "args": [
-        "test", "-p", "codelldb2"
+        "test", "-p", "lldb"
       ],
       "problemMatcher": [
         "$rustc"

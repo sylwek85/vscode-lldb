@@ -1,13 +1,13 @@
 extern crate env_logger;
 
-use std::ffi::CStr;
+use std::env;
+use std::ffi::{CStr, CString};
 use std::mem;
-use std::os::raw::{c_char, c_int, c_void};
-
 
 #[cfg(unix)]
-fn main() {
-    env_logger::Builder::from_default_env().init();
+fn main() -> Result<(), std::io::Error> {
+    use std::os::raw::{c_char, c_int, c_void};
+    use std::os::unix::ffi::*;
 
     #[link(name = "dl")]
     extern "C" {
@@ -15,27 +15,34 @@ fn main() {
         fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
         fn dlerror() -> *const c_char;
     }
-
     const RTLD_LAZY: c_int = 0x00001;
     const RTLD_GLOBAL: c_int = 0x00100;
 
+    env_logger::Builder::from_default_env().init();
+
     unsafe {
-        let liblldb = dlopen(
-            b"/usr/lib/llvm-6.0/lib/liblldb-6.0.so\0".as_ptr() as *const c_char,
-            //b"/Library/Developer/CommandLineTools/Library/PrivateFrameworks/LLDB.framework/LLDB\0".as_ptr() as *const c_char,
-            RTLD_LAZY | RTLD_GLOBAL,
-        );
+        let liblldb_path: &[u8] = if cfg!(os = "macos") {
+            b"liblldb.dylib\0"
+        } else {
+            b"liblldb-6.0.so\0"
+        };
+        let liblldb = dlopen(liblldb_path.as_ptr() as *const c_char, RTLD_LAZY | RTLD_GLOBAL);
         if liblldb.is_null() {
             panic!("{:?}", CStr::from_ptr(dlerror()));
         }
-        let libcodelldb = dlopen(
-            b"/home/chega/NW/vscode-lldb/target/debug/libcodelldb2.so\0".as_ptr() as *const c_char,
-            //b"/Users/chega/NW/vscode-lldb/target/debug/libcodelldb2.dylib\0".as_ptr() as *const c_char,
-            RTLD_LAZY,
-        );
+
+        let mut codelldb_path = env::current_exe()?;
+        if cfg!(os = "macos") {
+            codelldb_path.set_file_name("libcodelldb2.dylib");
+        } else {
+            codelldb_path.set_file_name("libcodelldb2.so");
+        }
+        let codelldb_path = CString::new(codelldb_path.as_os_str().as_bytes())?;
+        let libcodelldb = dlopen(codelldb_path.as_ptr() as *const c_char, RTLD_LAZY);
         if libcodelldb.is_null() {
             panic!("{:?}", CStr::from_ptr(dlerror()));
         }
+
         let entry = dlsym(libcodelldb, b"entry\0".as_ptr() as *const c_char);
         if entry.is_null() {
             panic!("{:?}", CStr::from_ptr(dlerror()));
@@ -43,33 +50,41 @@ fn main() {
         let entry: unsafe extern "C" fn() = mem::transmute(entry);
         entry();
     }
+    Ok(())
 }
 
 #[cfg(windows)]
-fn main()
-{
-    env_logger::Builder::from_default_env().init();
+fn main() -> Result<(), std::io::Error> {
+    use std::os::raw::{c_char, c_void};
 
-    #[link(name="kernel32")]
+    #[link(name = "kernel32")]
     extern "system" {
         fn LoadLibraryA(filename: *const c_char) -> *mut c_void;
         fn GetProcAddress(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
     }
 
+    env_logger::Builder::from_default_env().init();
+
     unsafe {
-        let liblldb = LoadLibraryA("C:\\NW\\ll\\build\\bin\\liblldb.dll\0".as_ptr() as *const c_char);
+        let liblldb = LoadLibraryA(b"liblldb.dll\0".as_ptr() as *const c_char);
         if liblldb.is_null() {
-            panic!("load lldb");
+            panic!("Could not load liblldb.dll");
         }
-        let libcodelldb = LoadLibraryA("C:\\NW\\vscode-lldb\\target\\debug\\codelldb2.dll\0".as_ptr() as *const c_char);
+
+        let mut codelldb_path = env::current_exe()?;
+        codelldb_path.set_file_name("codelldb2.dll");
+        let codelldb_path = CString::new(codelldb_path.as_os_str().as_bytes())?;
+
+        let libcodelldb = LoadLibraryA(codelldb_path.as_ptr() as *const c_char);
         if libcodelldb.is_null() {
-            panic!("load codelldb2");
+            panic!("Could not load codelldb2.dll");
         }
         let entry = GetProcAddress(libcodelldb, b"entry\0".as_ptr() as *const c_char);
         if entry.is_null() {
-            panic!("get entry");
+            panic!("Could not get the entry point.");
         }
         let entry: unsafe extern "C" fn() = mem::transmute(entry);
         entry();
     }
+    Ok(())
 }
