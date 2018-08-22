@@ -1,12 +1,12 @@
 extern crate env_logger;
 
 use std::env;
-use std::ffi::{CStr, CString};
 use std::mem;
 
 #[cfg(unix)]
 fn main() -> Result<(), std::io::Error> {
     use std::os::raw::{c_char, c_int, c_void};
+    use std::ffi::{CStr, CString};
     use std::os::unix::ffi::*;
 
     #[link(name = "dl")]
@@ -56,6 +56,7 @@ fn main() -> Result<(), std::io::Error> {
 #[cfg(windows)]
 fn main() -> Result<(), std::io::Error> {
     use std::os::raw::{c_char, c_void};
+    use std::ffi::{CString};
 
     #[link(name = "kernel32")]
     extern "system" {
@@ -73,7 +74,7 @@ fn main() -> Result<(), std::io::Error> {
 
         let mut codelldb_path = env::current_exe()?;
         codelldb_path.set_file_name("codelldb2.dll");
-        let codelldb_path = CString::new(codelldb_path.as_os_str().as_bytes())?;
+        let codelldb_path = CString::new(codelldb_path.as_os_str().to_str().unwrap().as_bytes())?;
 
         let libcodelldb = LoadLibraryA(codelldb_path.as_ptr() as *const c_char);
         if libcodelldb.is_null() {

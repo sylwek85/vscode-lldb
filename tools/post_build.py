@@ -6,9 +6,21 @@ import shutil
 
 def main():
     workspace_folder = sys.argv[1]
-    shutil.copy(workspace_folder + '/adapter2/codelldb.py', workspace_folder + '/target/debug/codelldb.py')
-    shutil.copy(workspace_folder + '/adapter2/value.py', workspace_folder + '/target/debug/value.py')
-    shutil.copy('/usr/lib/llvm-6.0/bin/lldb-server-6.0.1', workspace_folder + '/target/debug/lldb-server-6.0.1')
-    shutil.copy('/usr/lib/llvm-6.0/lib/liblldb-6.0.so', workspace_folder + '/target/debug/liblldb-6.0.so')
+    target_dir = workspace_folder + '/target/debug'
+
+    shutil.copy(workspace_folder + '/adapter2/codelldb.py', target_dir)
+    shutil.copy(workspace_folder + '/adapter2/value.py', target_dir)
+    if sys.platform.startswith('linux'):
+        shutil.copy('/usr/lib/llvm-6.0/bin/lldb-server-6.0.1', target_dir)
+        shutil.copy('/usr/lib/llvm-6.0/lib/liblldb-6.0.so', target_dir)
+    elif sys.platform.startswith('darwin'):
+        pass
+    elif sys.platform.startswith('win32'):
+        shutil.copy('C:/NW/ll/build/bin/liblldb.dll', target_dir)
+        target_site_packages = target_dir + '/../lib/site-packages'
+        shutil.rmtree(target_site_packages)
+        shutil.copytree('C:/NW/ll/build/lib/site-packages', target_site_packages)
+    else:
+        assert False
 
 main()
