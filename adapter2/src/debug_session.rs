@@ -542,15 +542,29 @@ impl DebugSession {
 
     fn configure_stdio(&mut self, args: &LaunchRequestArguments, launch_info: &mut SBLaunchInfo) -> Result<(), Error> {
         let tty_name = match args.terminal {
-            Some(ref terminal_kind) => match terminal_kind {
-                TerminalKind::External | TerminalKind::Integrated => {
-                    let terminal = Terminal::create(|args| self.run_in_vscode_terminal(terminal_kind.clone(), args))?;
-                    let tty_name = terminal.tty_name().to_owned();
-                    self.terminal = Some(terminal);
-                    Some(tty_name)
+            Some(ref terminal_kind) => {
+                if cfg!(unix) {
+                    match terminal_kind {
+                        TerminalKind::External | TerminalKind::Integrated => {
+                            let terminal =
+                                Terminal::create(|args| self.run_in_vscode_terminal(terminal_kind.clone(), args))?;
+                            let tty_name = terminal.tty_name().to_owned();
+                            self.terminal = Some(terminal);
+                            Some(tty_name)
+                        }
+                        TerminalKind::Console => None,
+                    }
+                } else {
+                    // cfg!(windows)
+                    match terminal_kind {
+                        TerminalKind::External => None,
+                        TerminalKind::Integrated | TerminalKind::Console => {
+                            env::set_var("LLDB_LAUNCH_INFERIORS_WITHOUT_CONSOLE", "true");
+                            None
+                        }
+                    }
                 }
-                TerminalKind::Console => None,
-            },
+            }
             None => None,
         };
 
