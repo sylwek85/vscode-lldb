@@ -13,12 +13,12 @@ impl SBError {
             return self->IsValid();
         })
     }
-    pub fn success(&self) -> bool {
+    pub fn is_success(&self) -> bool {
         cpp!(unsafe [self as "SBError*"] -> bool as "bool" {
             return self->Success();
         })
     }
-    pub fn fail(&self) -> bool {
+    pub fn is_failure(&self) -> bool {
         cpp!(unsafe [self as "SBError*"] -> bool as "bool" {
             return self->Fail();
         })
@@ -49,3 +49,5 @@ impl fmt::Display for SBError {
         f.write_str(self.message())
     }
 }
+
+// TODO: impl std::error::Error?

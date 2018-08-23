@@ -3,8 +3,10 @@ from __future__ import print_function
 import sys
 import os
 import shutil
+import subprocess
 
 def main():
+    subprocess.check_call(['cargo', 'build'])
     workspace_folder = sys.argv[1]
     target_dir = workspace_folder + '/target/debug'
 

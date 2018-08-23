@@ -217,6 +217,12 @@ impl<'a> SBBreakpointEvent<'a> {
             return SBBreakpoint::GetBreakpointFromEvent(*event);
         })
     }
+    pub fn event_type(&self) -> BreakpointEventType {
+        let event = self.0;
+        cpp!(unsafe [event as "SBEvent*"] -> BreakpointEventType as "BreakpointEventType" {
+            return SBBreakpoint::GetBreakpointEventTypeFromEvent(*event);
+        })
+    }
     pub fn num_breakpoint_locations(&self) -> u32 {
         let event = self.0;
         cpp!(unsafe [event as "SBEvent*"] -> u32 as "uint32_t" {
@@ -233,5 +239,24 @@ impl<'a> SBBreakpointEvent<'a> {
         SBIterator::new(self.num_breakpoint_locations() as u32, move |index| {
             self.breakpoint_location_at_index(index)
         })
+    }
+}
+
+bitflags! {
+    pub struct BreakpointEventType : u32 {
+        const InvalidType = (1 << 0);
+        const Added = (1 << 1);
+        const Removed = (1 << 2);
+        // Locations added doesn't get sent when the breakpoint is created
+        const LocationsAdded = (1 << 3);
+        const LocationsRemoved = (1 << 4);
+        const LocationsResolved = (1 << 5);
+        const Enabled = (1 << 6);
+        const Disabled = (1 << 7);
+        const CommandChanged = (1 << 8);
+        const ConditionChanged = (1 << 9);
+        const IgnoreChanged = (1 << 10);
+        const ThreadChanged = (1 << 11);
+        const AutoContinueChanged = (1 << 12);
     }
 }

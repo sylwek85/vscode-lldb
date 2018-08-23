@@ -25,7 +25,7 @@ use crate::error::Error;
 use crate::expressions;
 use crate::handles::{self, Handle, HandleTree};
 use crate::must_initialize::{Initialized, MustInitialize, NotInitialized};
-use crate::python;
+use crate::python::{self, PythonValue};
 use crate::source_map;
 use crate::terminal::Terminal;
 use lldb::*;
@@ -75,12 +75,6 @@ enum ExprType {
     Native,
     Python,
     Simple,
-}
-
-#[derive(Debug)]
-pub enum Evaluated {
-    SBValue(SBValue),
-    String(String),
 }
 
 pub struct DebugSession {
@@ -431,14 +425,45 @@ impl DebugSession {
         &self, bp: &mut SBBreakpoint, bp_info: &mut BreakpointInfo, condition: Option<&str>,
         hit_condition: Option<&str>, log_message: Option<&str>,
     ) {
+        fn evaluate_python_bp_condition(
+            expr: &str, process: &SBProcess, thread: &SBThread, location: &SBBreakpointLocation,
+        ) -> bool {
+            let debugger = process.target().debugger();
+            let interpreter = debugger.command_interpreter();
+            let context = SBExecutionContext::from_frame(&thread.frame_at_index(0));
+            match python::evaluate(&interpreter, &expr, true, &context) {
+                Err(_) => true, // Stop on evluation errors
+                Ok(val) => match val {
+                    PythonValue::SBValue(val) => match val.try_value_as_unsigned() {
+                        Ok(val) => val != 0,
+                        Err(_) => true,
+                    },
+                    PythonValue::Bool(val) => val,
+                    _ => true,
+                },
+            }
+        }
+
         if let Some(condition) = condition {
             let (expr, ty) = self.get_expression_type(condition);
             match ty {
                 ExprType::Native => bp.set_condition(expr),
-                ExprType::Python => bp.set_callback(|process, thread, location| {}),
-                ExprType::Simple => unimplemented!(),
+                ExprType::Simple => {
+                    let pp_expr = expressions::preprocess_simple_expr(expr);
+                    bp.set_callback(move |process, thread, location| {
+                        evaluate_python_bp_condition(&pp_expr, process, thread, location)
+                    });
+                }
+                ExprType::Python => {
+                    let pp_expr = expressions::preprocess_python_expr(expr);
+                    bp.set_callback(move |process, thread, location| {
+                        evaluate_python_bp_condition(&pp_expr, process, thread, location)
+                    });
+                }
             }
             bp_info.condition = Some(expr.into());
+        } else {
+            bp.clear_callback();
         }
         // TODO: hit count
         bp_info.log_message = log_message.map(|s| s.into());
@@ -1066,7 +1091,7 @@ impl DebugSession {
         let (expression, expr_format) = self.get_expr_format(expression);
         let expr_format = expr_format.unwrap_or(self.global_format);
         self.evaluate_expr_in_frame(expression, frame).map(|val| match val {
-            Evaluated::SBValue(sbval) => {
+            PythonValue::SBValue(sbval) => {
                 let handle = self.get_var_handle(None, expression, &sbval);
                 EvaluateResponseBody {
                     result: self.get_var_value_str(&sbval, expr_format, handle.is_some()),
@@ -1075,7 +1100,15 @@ impl DebugSession {
                     ..Default::default()
                 }
             }
-            Evaluated::String(s) => EvaluateResponseBody {
+            PythonValue::Int(val) => EvaluateResponseBody {
+                result: val.to_string(),
+                ..Default::default()
+            },
+            PythonValue::Bool(val) => EvaluateResponseBody {
+                result: val.to_string(),
+                ..Default::default()
+            },
+            PythonValue::String(s) | PythonValue::Object(s) => EvaluateResponseBody {
                 result: s,
                 ..Default::default()
             },
@@ -1084,7 +1117,7 @@ impl DebugSession {
 
     // Evaluates expr in the context of frame (or in global context if frame is None)
     // Returns expressions.Value or SBValue on success, SBError on failure.
-    fn evaluate_expr_in_frame(&self, expr: &str, frame: Option<&SBFrame>) -> Result<Evaluated, Error> {
+    fn evaluate_expr_in_frame(&self, expr: &str, frame: Option<&SBFrame>) -> Result<PythonValue, Error> {
         let (expr, ty) = self.get_expression_type(expr);
         match ty {
             ExprType::Native => {
@@ -1093,25 +1126,25 @@ impl DebugSession {
                     None => self.target.evaluate_expression(expr),
                 };
                 let error = result.error();
-                if error.success() {
-                    Ok(Evaluated::SBValue(result))
+                if error.is_success() {
+                    Ok(PythonValue::SBValue(result))
                 } else {
                     Err(error.into())
                 }
             }
             ExprType::Python => {
+                let pp_expr = expressions::preprocess_python_expr(expr);
                 let interpreter = self.debugger.command_interpreter();
                 let context = self.context_from_frame(frame);
-                let pp_expr = expressions::preprocess_python_expr(expr);
                 match python::evaluate(&interpreter, &pp_expr, false, &context) {
                     Ok(val) => Ok(val),
                     Err(s) => Err(Error::UserError(s)),
                 }
             }
             ExprType::Simple => {
+                let pp_expr = expressions::preprocess_simple_expr(expr);
                 let interpreter = self.debugger.command_interpreter();
                 let context = self.context_from_frame(frame);
-                let pp_expr = expressions::preprocess_simple_expr(expr);
                 match python::evaluate(&interpreter, &pp_expr, true, &context) {
                     Ok(val) => Ok(val),
                     Err(s) => Err(Error::UserError(s)),
@@ -1161,7 +1194,7 @@ impl DebugSession {
 
     fn handle_pause(&mut self, args: PauseArguments) -> Result<(), Error> {
         let error = self.process.stop();
-        if error.success() {
+        if error.is_success() {
             Ok(())
         } else {
             Err(Error::UserError(error.message().into()))
@@ -1171,7 +1204,7 @@ impl DebugSession {
     fn handle_continue(&mut self, args: ContinueArguments) -> Result<ContinueResponseBody, Error> {
         self.before_resume();
         let error = self.process.resume();
-        if error.success() {
+        if error.is_success() {
             Ok(ContinueResponseBody {
                 all_threads_continued: Some(true),
             })
@@ -1303,7 +1336,7 @@ impl DebugSession {
         } else if let Some(target_event) = event.as_target_event() {
             self.handle_target_event(&target_event);
         } else if let Some(bp_event) = event.as_breakpoint_event() {
-            //self.notify_breakpoint(event);
+            self.handle_breakpoint_event(&bp_event);
         }
     }
 
@@ -1418,6 +1451,14 @@ impl DebugSession {
             for module in event.modules() {
                 self.loaded_modules.push(module);
             }
+        }
+    }
+
+    fn handle_breakpoint_event(&mut self, event: &SBBreakpointEvent) {
+        let bp = event.breakpoint();
+        let event_type = event.event_type();
+        if event_type.intersects(BreakpointEventType::Removed) {
+            bp.clear_callback();
         }
     }
 

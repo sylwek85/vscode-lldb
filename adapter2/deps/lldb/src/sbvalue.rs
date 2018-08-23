@@ -20,6 +20,11 @@ impl SBValue {
             return self->GetError();
         })
     }
+    pub fn is_success(&self) -> bool {
+        cpp!(unsafe [self as "SBValue*"] -> bool as "bool" {
+            return self->GetError().Success();
+        })
+    }
     pub fn type_(&self) -> SBType {
         cpp!(unsafe [self as "SBValue*"] -> SBType as "SBType" {
             return self->GetType();
@@ -90,7 +95,7 @@ impl SBValue {
         let value = cpp!(unsafe [self as "SBValue*", mut error as "SBError"] -> i64 as "int64_t" {
             return self->GetValueAsSigned(error);
         });
-        if error.success() {
+        if error.is_success() {
             Ok(value)
         } else {
             Err(error)
@@ -101,7 +106,7 @@ impl SBValue {
         let value = cpp!(unsafe [self as "SBValue*", mut error as "SBError"] -> u64 as "uint64_t" {
             return self->GetValueAsUnsigned(error);
         });
-        if error.success() {
+        if error.is_success() {
             Ok(value)
         } else {
             Err(error)

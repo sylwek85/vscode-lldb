@@ -10,6 +10,11 @@ impl SBTarget {
             return self->IsValid();
         })
     }
+    pub fn debugger(&self) -> SBDebugger {
+        cpp!(unsafe [self as "SBTarget*"] -> SBDebugger as "SBDebugger" {
+            return self->GetDebugger();
+        })
+    }
     pub fn broadcaster(&self) -> SBBroadcaster {
         cpp!(unsafe [self as "SBTarget*"] -> SBBroadcaster as "SBBroadcaster" {
             return self->GetBroadcaster();
@@ -21,7 +26,7 @@ impl SBTarget {
         let process = cpp!(unsafe [self as "SBTarget*", launch_info as "SBLaunchInfo*", mut error as "SBError"] -> SBProcess as "SBProcess" {
             return self->Launch(*launch_info, error);
         });
-        if error.success() {
+        if error.is_success() {
             Ok(process)
         } else {
             Err(error)

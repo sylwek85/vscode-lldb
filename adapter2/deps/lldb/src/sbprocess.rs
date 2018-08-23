@@ -10,6 +10,11 @@ impl SBProcess {
             return self->IsValid();
         })
     }
+    pub fn target(&self) -> SBTarget {
+        cpp!(unsafe [self as "SBProcess*"] -> SBTarget as "SBTarget" {
+                return self->GetTarget();
+        })
+    }
     pub fn num_threads(&self) -> u32 {
         cpp!(unsafe [self as "SBProcess*"] -> u32 as "uint32_t" {
                 return self->GetNumThreads();

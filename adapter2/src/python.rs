@@ -6,7 +6,6 @@ use std::slice::{self, SliceConcatExt};
 
 use lldb::*;
 
-use crate::debug_session::Evaluated;
 use crate::error::Error;
 use crate::lldb::*;
 use crate::must_initialize::*;
@@ -22,25 +21,46 @@ pub fn initialize(interpreter: &SBCommandInterpreter) -> Result<(), Error> {
     Ok(())
 }
 
-type EvalResult = Result<Evaluated, String>;
+#[derive(Debug)]
+pub enum PythonValue {
+    SBValue(SBValue),
+    Int(i64),
+    Bool(bool),
+    String(String),
+    Object(String),
+}
+
+type EvalResult = Result<PythonValue, String>;
 
 pub fn evaluate(
     interpreter: &SBCommandInterpreter, script: &str, simple_expr: bool, context: &SBExecutionContext,
 ) -> EvalResult {
-    extern "C" fn callback(ty: c_int, data: *const c_void, len: usize, result_ptr: *mut EvalResult) {
+    extern "C" fn callback(ty: c_int, data1:usize, data2: usize, result_ptr: *mut EvalResult) {
         unsafe {
             *result_ptr = match ty {
-                1 => {
-                    let sbvalue = data as *const SBValue;
-                    Ok(Evaluated::SBValue((*sbvalue).clone()))
-                }
-                2 => {
-                    let bytes = slice::from_raw_parts(data as *const u8, len);
-                    Ok(Evaluated::String(String::from_utf8_lossy(bytes).into_owned()))
-                }
-                3 => {
-                    let bytes = slice::from_raw_parts(data as *const u8, len);
+                0 => { // Error
+                    let bytes = slice::from_raw_parts(data1 as *const u8, data2);
                     Err(String::from_utf8_lossy(bytes).into_owned())
+                }
+                1 => { // SBValue
+                    let sbvalue = data1 as *const SBValue;
+                    Ok(PythonValue::SBValue((*sbvalue).clone()))
+                }
+                2 => { // bool
+                    let value = (data1 as i64) != 0;
+                    Ok(PythonValue::Bool(value))
+                }
+                3 => { // int
+                    let value = data1 as i64;
+                    Ok(PythonValue::Int(value))
+                }
+                4 => { // string
+                    let bytes = slice::from_raw_parts(data1 as *const u8, data2);
+                    Ok(PythonValue::String(String::from_utf8_lossy(bytes).into_owned()))
+                }
+                5 => { // str(object)
+                    let bytes = slice::from_raw_parts(data1 as *const u8, data2);
+                    Ok(PythonValue::Object(String::from_utf8_lossy(bytes).into_owned()))
                 }
                 _ => unreachable!(),
             }

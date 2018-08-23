@@ -7,10 +7,8 @@ cpp_class!(pub unsafe struct SBBreakpoint as "SBBreakpoint");
 
 unsafe impl Send for SBBreakpoint {}
 
-type SBBreakpointHitCallback = FnMut(&SBProcess, &SBThread, &SBBreakpointLocation) + Send;
-
 lazy_static! {
-    static ref CALLBACKS: Mutex<HashMap<BreakpointID, Box<SBBreakpointHitCallback>>> = { Mutex::new(HashMap::new()) };
+    static ref CALLBACKS: Mutex<HashMap<BreakpointID, Box<FnMut(&SBProcess, &SBThread, &SBBreakpointLocation) -> bool + Send>>> = { Mutex::new(HashMap::new()) };
 }
 
 impl SBBreakpoint {
@@ -59,17 +57,23 @@ impl SBBreakpoint {
             });
         });
     }
+    // LLDB API does not provide automatic tracking of callback lifetimes; in order to prevent a memory leak,
+    // be sure to call clear_callback().  The easiest way to accomplish this is by watching for "breakpoint removed"
+    // events.
     pub fn set_callback<F>(&self, callback: F)
     where
-        F: FnMut(&SBProcess, &SBThread, &SBBreakpointLocation) + Send + 'static,
+        F: FnMut(&SBProcess, &SBThread, &SBBreakpointLocation) -> bool + Send + 'static,
     {
         unsafe extern "C" fn callback_thunk(
-            _: *mut c_void, process: *const SBProcess, thread: *const SBThread, location: *const SBBreakpointLocation,
-        ) {
+            _baton: *mut c_void, process: *const SBProcess, thread: *const SBThread,
+            location: *const SBBreakpointLocation,
+        ) -> bool {
             let bp_id = (*location).breakpoint().id();
             let mut callbacks = CALLBACKS.lock().unwrap();
             if let Some(callback) = callbacks.get_mut(&bp_id) {
-                callback(&*process, &*thread, &*location);
+                callback(&*process, &*thread, &*location)
+            } else {
+                false
             }
         }
 
@@ -77,14 +81,21 @@ impl SBBreakpoint {
         let mut callbacks = CALLBACKS.lock().unwrap();
         callbacks.insert(bp_id, Box::new(callback));
 
-        let cb = &callback_thunk;
+        let cb = callback_thunk as *const c_void;
         cpp!(unsafe [self as "SBBreakpoint*", cb as "SBBreakpointHitCallback"] {
             self->SetCallback(cb, nullptr);
         });
     }
-    pub fn remove_callback(breakpoint_id: BreakpointID) {
+    pub fn clear_callback(&self) {
+        cpp!(unsafe [self as "SBBreakpoint*"] {
+            self->SetCallback(nullptr, nullptr);
+        });
         let mut callbacks = CALLBACKS.lock().unwrap();
-        callbacks.remove(&breakpoint_id);
+        callbacks.remove(&self.id());
+    }
+    pub fn clear_all_callbacks() {
+        let mut callbacks = CALLBACKS.lock().unwrap();
+        callbacks.clear();
     }
 }
 

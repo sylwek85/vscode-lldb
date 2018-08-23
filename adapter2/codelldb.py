@@ -12,9 +12,9 @@ log = logging.getLogger('codelldb')
 
 #============================================================================================
 
-RESULT_CALLBACK = CFUNCTYPE(None, c_int, c_void_p, c_size_t, c_void_p)
+RESULT_CALLBACK = CFUNCTYPE(None, c_int, c_size_t, c_size_t, c_void_p)
 
-def evaluate(script, simple_expr, callback_addr, param_addr):
+def evaluate(script, simple_expr, callback_addr, baton):
     callback = RESULT_CALLBACK(callback_addr)
 
     if simple_expr:
@@ -31,13 +31,19 @@ def evaluate(script, simple_expr, callback_addr, param_addr):
         result = eval(script, eval_globals, eval_locals)
         result = Value.unwrap(result)
         if isinstance(result, lldb.SBValue):
-            callback(1, long(result.this), 0, param_addr)
+            callback(1, long(result.this), 0, baton)
+        elif isinstance(result, bool):
+            callback(2, long(result), 0, baton)
+        elif isinstance(result, int):
+            callback(3, long(result), 0, baton)
+        elif isinstance(result, str):
+            callback(4, s, len(s), baton)
         else:
             s = str(result)
-            callback(2, s, len(s), param_addr)
+            callback(5, s, len(s), baton)
     except Exception as e:
         s = traceback.format_exc()
-        callback(3, s, len(s), param_addr)
+        callback(0, s, len(s), baton)
 
 def find_var_in_frame(sbframe, name):
     val = sbframe.FindVariable(name)

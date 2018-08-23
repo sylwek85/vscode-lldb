@@ -52,7 +52,7 @@ impl SBDebugger {
                                              ] -> SBTarget as "SBTarget" {
                             return self->CreateTarget(executable, target_triple, platform_name, add_dependent_modules, error);
                         });
-                    if error.success() {
+                    if error.is_success() {
                         Ok(target)
                     } else {
                         Err(error)

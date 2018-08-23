@@ -23,7 +23,7 @@ impl SBData {
                      ptr as "void*", size as "size_t"] -> usize as "size_t" {
             return self->ReadRawData(error, offset, ptr, size);
         });
-        if error.success() {
+        if error.is_success() {
             Ok(())
         } else {
             Err(error)

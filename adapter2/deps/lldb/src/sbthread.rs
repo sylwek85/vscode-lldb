@@ -20,6 +20,11 @@ impl SBThread {
             return self->GetIndexID();
         })
     }
+    pub fn process(&self) -> SBProcess {
+        cpp!(unsafe [self as "SBThread*"] -> SBProcess as "SBProcess" {
+            return self->GetProcess();
+        })
+    }
     pub fn stop_reason(&self) -> StopReason {
         cpp!(unsafe [self as "SBThread*"] -> StopReason as "uint32_t" {
             return self->GetStopReason();
