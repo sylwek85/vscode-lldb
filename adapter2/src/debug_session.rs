@@ -94,7 +94,7 @@ pub struct DebugSession {
     on_configuration_done: Option<(u32, Box<AsyncResponder>)>,
     source_breakpoints: HashMap<FileId, HashMap<i64, BreakpointID>>,
     fn_breakpoints: HashMap<String, BreakpointID>,
-    breakpoints: HashMap<BreakpointID, BreakpointInfo>,
+    breakpoints: RefCell<HashMap<BreakpointID, BreakpointInfo>>,
     var_refs: HandleTree<Container>,
     disassembly: MustInitialize<disassembly::AddressSpace>,
     known_threads: HashSet<ThreadID>,
@@ -135,7 +135,7 @@ impl DebugSession {
             on_configuration_done: None,
             source_breakpoints: HashMap::new(),
             fn_breakpoints: HashMap::new(),
-            breakpoints: HashMap::new(),
+            breakpoints: RefCell::new(HashMap::new()),
             var_refs: HandleTree::new(),
             disassembly: NotInitialized,
             known_threads: HashSet::new(),
@@ -337,7 +337,7 @@ impl DebugSession {
         for (line, bp_id) in old_existing_bps.drain() {
             if !requested_bps.iter().any(|rbp| rbp.line == line) {
                 self.target.breakpoint_delete(bp_id);
-                self.breakpoints.remove(&bp_id);
+                self.breakpoints.borrow_mut().remove(&bp_id);
             } else {
                 existing_bps.insert(line, bp_id);
             }
@@ -358,15 +358,17 @@ impl DebugSession {
     fn set_source_breakpoints(
         &mut self, existing_bps: &mut HashMap<i64, BreakpointID>, requested_bps: &[SourceBreakpoint], file_path: &str,
     ) -> Vec<Breakpoint> {
-        let mut breakpoints = vec![];
+        let mut breakpoints_resp = vec![];
+        let mut breakpoints = self.breakpoints.borrow_mut();
         for req in requested_bps {
             let mut bp_resp = Breakpoint { ..Default::default() };
 
-            let bp = if let Some(bp_id) = existing_bps.get(&req.line).cloned() {
+            let (mut bp, bp_info) = if let Some(bp_id) = existing_bps.get(&req.line).cloned() {
                 let bp = self.target.find_breakpoint_by_id(bp_id);
+                let bp_info = breakpoints.get_mut(&bp_id).unwrap();
                 bp_resp.id = Some(bp.id() as i64);
                 bp_resp.verified = true;
-                bp
+                (bp, bp_info)
             } else {
                 let file_name = Path::new(file_path).file_name().unwrap().to_str().unwrap();
                 let bp = self.target.breakpoint_create_by_location(file_name, req.line as u32);
@@ -407,15 +409,43 @@ impl DebugSession {
                         ..Default::default()
                     })
                 }
-                bp
+                let bp_info = breakpoints.entry(bp_info.id).or_insert(bp_info);
+                (bp, bp_info)
             };
-            // TODO: set condition, etc
-            breakpoints.push(bp_resp);
+
+            self.init_bp_actions(
+                &mut bp,
+                bp_info,
+                opt_as_ref(&req.condition),
+                opt_as_ref(&req.hit_condition),
+                opt_as_ref(&req.log_message),
+            );
+
+            breakpoints_resp.push(bp_resp);
         }
-        breakpoints
+        breakpoints_resp
     }
 
-    fn is_valid_source_bp_location(&mut self, bp_loc: &SBBreakpointLocation, bp_info: &mut BreakpointInfo) -> bool {
+    fn init_bp_actions(
+        &self, bp: &mut SBBreakpoint, bp_info:&mut BreakpointInfo, condition: Option<&str>, hit_condition: Option<&str>,
+        log_message: Option<&str>,
+    ) {
+        if let Some(condition) = condition {
+            let (expr, ty) = self.get_expression_type(condition);
+            match ty {
+                ExprType::Native => bp.set_condition(expr),
+                ExprType::Python => bp.set_callback(|process,thread,location| {
+
+                }),
+                ExprType::Simple => unimplemented!(),
+            }
+            bp_info.condition = Some(expr.into());
+        }
+        // TODO: hit count
+        bp_info.log_message = log_message.map(|s| s.into());
+    }
+
+    fn is_valid_source_bp_location(&self, bp_loc: &SBBreakpointLocation, bp_info: &mut BreakpointInfo) -> bool {
         if let Some(le) = bp_loc.address().line_entry() {
             if let BreakpointKind::Source {
                 ref mut resolved_line, ..
@@ -544,6 +574,7 @@ impl DebugSession {
         let tty_name = match args.terminal {
             Some(ref terminal_kind) => {
                 if cfg!(unix) {
+                    // use selected platform instead of cfg
                     match terminal_kind {
                         TerminalKind::External | TerminalKind::Integrated => {
                             let terminal =
@@ -556,13 +587,12 @@ impl DebugSession {
                     }
                 } else {
                     // cfg!(windows)
-                    match terminal_kind {
-                        TerminalKind::External => None,
-                        TerminalKind::Integrated | TerminalKind::Console => {
-                            env::set_var("LLDB_LAUNCH_INFERIORS_WITHOUT_CONSOLE", "true");
-                            None
-                        }
-                    }
+                    let without_console = match terminal_kind {
+                        TerminalKind::External => "false",
+                        TerminalKind::Integrated | TerminalKind::Console => "true",
+                    };
+                    env::set_var("LLDB_LAUNCH_INFERIORS_WITHOUT_CONSOLE", without_console);
+                    None
                 }
             }
             None => None,
@@ -1012,7 +1042,7 @@ impl DebugSession {
             }
         });
 
-        let context = args.context.as_ref().map(|s| s.as_str());
+        let context = args.context.as_ref().map(|s| s.as_ref());
         let mut expression: &str = &args.expression;
 
         if let Some("repl") = context {
@@ -1073,7 +1103,8 @@ impl DebugSession {
             ExprType::Python => {
                 let interpreter = self.debugger.command_interpreter();
                 let context = self.context_from_frame(frame);
-                match python::evaluate(&interpreter, &expr, false, &context) {
+                let pp_expr = python::preprocess_python_expr(expr);
+                match python::evaluate(&interpreter, &pp_expr, false, &context) {
                     Ok(val) => Ok(val),
                     Err(s) => Err(Error::UserError(s)),
                 }
@@ -1081,6 +1112,7 @@ impl DebugSession {
             ExprType::Simple => {
                 let interpreter = self.debugger.command_interpreter();
                 let context = self.context_from_frame(frame);
+                let pp_expr = python::preprocess_simple_expr(expr);
                 match python::evaluate(&interpreter, &expr, true, &context) {
                     Ok(val) => Ok(val),
                     Err(s) => Err(Error::UserError(s)),
@@ -1438,4 +1470,8 @@ where
 
 fn into_string_lossy(cstr: &std::ffi::CStr) -> String {
     cstr.to_string_lossy().into_owned()
+}
+
+fn opt_as_ref<'a>(x: &'a Option<String>) -> Option<&'a str> {
+    x.as_ref().map(|r| r.as_ref())
 }

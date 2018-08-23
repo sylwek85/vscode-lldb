@@ -4,6 +4,8 @@
 extern crate cpp;
 #[macro_use]
 extern crate bitflags;
+#[macro_use]
+extern crate lazy_static;
 
 use std::ffi::{CStr, CString};
 use std::fmt;

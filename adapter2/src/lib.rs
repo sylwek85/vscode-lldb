@@ -2,6 +2,7 @@
 #![feature(try_trait)]
 #![feature(fnbox)]
 #![feature(nll)]
+#![feature(slice_concat_ext)]
 #![allow(unused)]
 
 #[macro_use]
@@ -11,13 +12,13 @@ extern crate serde;
 extern crate serde_json;
 #[macro_use]
 extern crate failure_derive;
+#[macro_use]
+extern crate lazy_static;
 extern crate debug_protocol as raw_debug_protocol;
 extern crate failure;
 extern crate lldb;
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate lazy_static;
 extern crate bytes;
 extern crate env_logger;
 extern crate globset;

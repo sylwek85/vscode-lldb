@@ -57,8 +57,9 @@
 			"cargo":{
 				"args": [
 					"test",
+					"--lib",
 					"--no-run",
-					"-p", "lldb"
+					"-p", "codelldb2"
 				]
 			},
 			"args": ["--nocapture", "--test-threads=1"],
