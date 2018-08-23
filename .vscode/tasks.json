@@ -42,12 +42,18 @@
       "problemMatcher": [
         "$rustc"
       ],
-      "group": "build"
     },
     {
       "type": "shell",
       "label": "postbuild",
       "command": "python ${workspaceFolder}/tools/post_build.py ${workspaceFolder}",
+    },
+    {
+      "label": "build codelldb2",
+      "dependsOn":[
+        "cargo build",
+        "postbuild"
+      ],
       "group": "build"
     },
     {

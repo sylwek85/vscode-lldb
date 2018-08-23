@@ -22,6 +22,7 @@ use crate::cancellation::{CancellationSource, CancellationToken};
 use crate::debug_protocol::*;
 use crate::disassembly;
 use crate::error::Error;
+use crate::expressions;
 use crate::handles::{self, Handle, HandleTree};
 use crate::must_initialize::{Initialized, MustInitialize, NotInitialized};
 use crate::python;
@@ -427,16 +428,14 @@ impl DebugSession {
     }
 
     fn init_bp_actions(
-        &self, bp: &mut SBBreakpoint, bp_info:&mut BreakpointInfo, condition: Option<&str>, hit_condition: Option<&str>,
-        log_message: Option<&str>,
+        &self, bp: &mut SBBreakpoint, bp_info: &mut BreakpointInfo, condition: Option<&str>,
+        hit_condition: Option<&str>, log_message: Option<&str>,
     ) {
         if let Some(condition) = condition {
             let (expr, ty) = self.get_expression_type(condition);
             match ty {
                 ExprType::Native => bp.set_condition(expr),
-                ExprType::Python => bp.set_callback(|process,thread,location| {
-
-                }),
+                ExprType::Python => bp.set_callback(|process, thread, location| {}),
                 ExprType::Simple => unimplemented!(),
             }
             bp_info.condition = Some(expr.into());
@@ -1103,7 +1102,7 @@ impl DebugSession {
             ExprType::Python => {
                 let interpreter = self.debugger.command_interpreter();
                 let context = self.context_from_frame(frame);
-                let pp_expr = python::preprocess_python_expr(expr);
+                let pp_expr = expressions::preprocess_python_expr(expr);
                 match python::evaluate(&interpreter, &pp_expr, false, &context) {
                     Ok(val) => Ok(val),
                     Err(s) => Err(Error::UserError(s)),
@@ -1112,8 +1111,8 @@ impl DebugSession {
             ExprType::Simple => {
                 let interpreter = self.debugger.command_interpreter();
                 let context = self.context_from_frame(frame);
-                let pp_expr = python::preprocess_simple_expr(expr);
-                match python::evaluate(&interpreter, &expr, true, &context) {
+                let pp_expr = expressions::preprocess_simple_expr(expr);
+                match python::evaluate(&interpreter, &pp_expr, true, &context) {
                     Ok(val) => Ok(val),
                     Err(s) => Err(Error::UserError(s)),
                 }

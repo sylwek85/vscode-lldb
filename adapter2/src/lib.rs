@@ -56,6 +56,7 @@ mod python;
 mod source_map;
 mod terminal;
 mod wire_protocol;
+mod expressions;
 
 macro_rules! extract {
     ($compound:ident => $pattern:pat => $vars:expr) => {

@@ -18,7 +18,7 @@
 		},
 		{
 			"name": "codelldb2",
-			"preLaunchTask": "cargo build",
+			"preLaunchTask": "build codelldb2",
 			"type": "lldb",
 			"request": "launch",
 			"program": "${workspaceFolder}/target/debug/codelldb2",
