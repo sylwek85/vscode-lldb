@@ -40,6 +40,7 @@ enum FileId {
     Disassembly(Handle),
 }
 
+#[derive(Debug, Clone)]
 enum BreakpointKind {
     Source {
         file_path: String,
@@ -54,6 +55,7 @@ enum BreakpointKind {
     Exception,
 }
 
+#[derive(Debug, Clone)]
 struct BreakpointInfo {
     id: BreakpointID,
     kind: BreakpointKind,
@@ -379,6 +381,8 @@ impl DebugSession {
                     log_message: None,
                     ignore_count: 0,
                 };
+
+                let bp_id = bp_info.id;
                 existing_bps.insert(req.line, bp_info.id);
                 bp_resp.id = Some(bp_info.id as i64);
 
@@ -407,24 +411,79 @@ impl DebugSession {
                 let bp_info = breakpoints.entry(bp_info.id).or_insert(bp_info);
                 (bp, bp_info)
             };
+            bp_info.condition = req.condition.clone();
+            bp_info.log_message = req.log_message.clone();
 
-            self.init_bp_actions(
-                &mut bp,
-                bp_info,
-                opt_as_ref(&req.condition),
-                opt_as_ref(&req.hit_condition),
-                opt_as_ref(&req.log_message),
-            );
+            self.init_bp_actions(&mut bp, bp_info);
 
             breakpoints_resp.push(bp_resp);
         }
         breakpoints_resp
     }
 
-    fn init_bp_actions(
-        &self, bp: &mut SBBreakpoint, bp_info: &mut BreakpointInfo, condition: Option<&str>,
-        hit_condition: Option<&str>, log_message: Option<&str>,
-    ) {
+    fn handle_set_function_breakpoints(
+        &mut self, args: SetFunctionBreakpointsArguments,
+    ) -> Result<SetBreakpointsResponseBody, Error> {
+        let mut breakpoints_resp = vec![];
+        let mut new_fn_breakpoints = HashMap::new();
+
+        let mut breakpoints = self.breakpoints.borrow_mut();
+        for bp_req in args.breakpoints {
+            let (mut bp, bp_info) = match self.fn_breakpoints.get(&bp_req.name) {
+                Some(bp_id) => {
+                    let bp = self.target.find_breakpoint_by_id(*bp_id);
+                    let bp_info = breakpoints.get_mut(bp_id).unwrap();
+                    (bp, bp_info)
+                }
+                None => {
+                    let bp = if bp_req.name.starts_with("/re ") {
+                        self.target.breakpoint_create_by_regex(&bp_req.name[4..])
+                    } else {
+                        self.target.breakpoint_create_by_name(&bp_req.name)
+                    };
+                    let bp_info = BreakpointInfo {
+                        id: bp.id(),
+                        kind: BreakpointKind::Function,
+                        condition: None,
+                        log_message: None,
+                        ignore_count: 0,
+                    };
+                    let bp_info = breakpoints.entry(bp_info.id).or_insert(bp_info);
+                    (bp, bp_info)
+                }
+            };
+            bp_info.condition = bp_req.condition;
+
+            let bp_id = bp_info.id;
+            self.init_bp_actions(&mut bp, bp_info);
+
+            new_fn_breakpoints.insert(bp_req.name, bp_id);
+            breakpoints_resp.push(Breakpoint {
+                id: Some(bp_id as i64),
+                verified: bp.num_resolved_locations() > 0,
+                ..Default::default()
+            });
+        }
+
+        // Delete existing breakpoints that are not in new_fn_breakpoints
+        for (name, bp_id) in &self.fn_breakpoints {
+            if !new_fn_breakpoints.contains_key(name) {
+                self.target.breakpoint_delete(*bp_id);
+            }
+        }
+        self.fn_breakpoints = new_fn_breakpoints;
+
+        let response = SetBreakpointsResponseBody {
+            breakpoints: breakpoints_resp,
+        };
+        Ok(response)
+    }
+
+    fn handle_set_exception_breakpoints(&mut self, args: SetExceptionBreakpointsArguments) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn init_bp_actions(&self, bp: &mut SBBreakpoint, bp_info: &BreakpointInfo) {
         fn evaluate_python_bp_condition(
             expr: &str, process: &SBProcess, thread: &SBThread, location: &SBBreakpointLocation,
         ) -> bool {
@@ -444,7 +503,7 @@ impl DebugSession {
             }
         }
 
-        if let Some(condition) = condition {
+        if let Some(ref condition) = bp_info.condition {
             let (expr, ty) = self.get_expression_type(condition);
             match ty {
                 ExprType::Native => bp.set_condition(expr),
@@ -461,12 +520,10 @@ impl DebugSession {
                     });
                 }
             }
-            bp_info.condition = Some(expr.into());
         } else {
             bp.clear_callback();
         }
-        // TODO: hit count
-        bp_info.log_message = log_message.map(|s| s.into());
+        // TODO: hit count & log_message
     }
 
     fn is_valid_source_bp_location(&self, bp_loc: &SBBreakpointLocation, bp_info: &mut BreakpointInfo) -> bool {
@@ -479,17 +536,6 @@ impl DebugSession {
             }
         }
         true
-    }
-
-    fn handle_set_function_breakpoints(
-        &mut self, args: SetFunctionBreakpointsArguments,
-    ) -> Result<SetBreakpointsResponseBody, Error> {
-        let response = SetBreakpointsResponseBody { breakpoints: vec![] };
-        Ok(response)
-    }
-
-    fn handle_set_exception_breakpoints(&mut self, args: SetExceptionBreakpointsArguments) -> Result<(), Error> {
-        Ok(())
     }
 
     fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<Box<AsyncResponder>, Error> {

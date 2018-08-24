@@ -35,10 +35,7 @@
     {
       "type": "shell",
       "label": "cargo build",
-      "command": "cargo",
-      "args": [
-        "build"
-      ],
+      "command": "cargo build",
       "problemMatcher": [
         "$rustc"
       ]
@@ -55,10 +52,7 @@
     {
       "type": "shell",
       "label": "cargo check",
-      "command": "cargo",
-      "args": [
-        "check"
-      ],
+      "command": "clear; cargo check",
       "problemMatcher": [
         "$rustc"
       ],

@@ -44,6 +44,20 @@ impl SBTarget {
             })
         })
     }
+    pub fn breakpoint_create_by_name(&self, name: &str) -> SBBreakpoint {
+        with_cstr(name, |name| {
+            cpp!(unsafe [self as "SBTarget*", name as "const char*"] -> SBBreakpoint as "SBBreakpoint" {
+                return self->BreakpointCreateByName(name);
+            })
+        })
+    }
+    pub fn breakpoint_create_by_regex(&self, regex: &str) -> SBBreakpoint {
+        with_cstr(regex, |regex| {
+            cpp!(unsafe [self as "SBTarget*", regex as "const char*"] -> SBBreakpoint as "SBBreakpoint" {
+                return self->BreakpointCreateByRegex(regex);
+            })
+        })
+    }
     pub fn breakpoint_delete(&self, id: BreakpointID) -> bool {
         cpp!(unsafe [self as "SBTarget*", id as "break_id_t"] -> bool as "bool" {
             return self->BreakpointDelete(id);
