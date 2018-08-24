@@ -80,6 +80,9 @@
 					"default": {},
 					"scope": "resource"
 				},
+				"lldb.useCodeLLDB": {
+					"type": "boolean"
+				},
 				"lldb.logLevel": {
 					"description": "Global logging level, as defined by Python's 'logging' module (0=Verbose, 10=Debug, 20=Info, 30=Warning, 40=Error, 50=Critical).",
 					"type": "integer",

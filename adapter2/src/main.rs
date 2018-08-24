@@ -33,9 +33,9 @@ fn main() -> Result<(), std::io::Error> {
 
         let mut codelldb_path = env::current_exe()?;
         if cfg!(os = "macos") {
-            codelldb_path.set_file_name("libcodelldb2.dylib");
+            codelldb_path.set_file_name("libcodelldb.dylib");
         } else {
-            codelldb_path.set_file_name("libcodelldb2.so");
+            codelldb_path.set_file_name("libcodelldb.so");
         }
         let codelldb_path = CString::new(codelldb_path.as_os_str().as_bytes())?;
         let libcodelldb = dlopen(codelldb_path.as_ptr() as *const c_char, RTLD_LAZY);
@@ -73,12 +73,12 @@ fn main() -> Result<(), std::io::Error> {
         }
 
         let mut codelldb_path = env::current_exe()?;
-        codelldb_path.set_file_name("codelldb2.dll");
+        codelldb_path.set_file_name("codelldb.dll");
         let codelldb_path = CString::new(codelldb_path.as_os_str().to_str().unwrap().as_bytes())?;
 
         let libcodelldb = LoadLibraryA(codelldb_path.as_ptr() as *const c_char);
         if libcodelldb.is_null() {
-            panic!("Could not load codelldb2.dll");
+            panic!("Could not load codelldb.dll");
         }
         let entry = GetProcAddress(libcodelldb, b"entry\0".as_ptr() as *const c_char);
         if entry.is_null() {

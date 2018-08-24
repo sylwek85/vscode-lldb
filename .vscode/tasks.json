@@ -41,9 +41,9 @@
       ]
     },
     {
-      "label": "build codelldb2",
+      "label": "build codelldb",
       "type": "shell",
-      "command": "clear; python ${workspaceFolder}/tools/build_codelldb2.py ${workspaceFolder}",
+      "command": "clear; python ${workspaceFolder}/tools/build_codelldb.py ${workspaceFolder}",
       "problemMatcher": [
         "$rustc"
       ],
@@ -63,7 +63,7 @@
       "label": "cargo test",
       "command": "cargo",
       "args": [
-        "test", "-p", "codelldb2"
+        "test", "-p", "codelldb"
       ],
       "problemMatcher": [
         "$rustc"

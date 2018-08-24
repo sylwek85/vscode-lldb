@@ -1,7 +1,7 @@
 cargo-features = ["edition"]
 
 [package]
-name = "codelldb2"
+name = "codelldb"
 version = "0.1.0"
 authors = ["Vadim Chugunov <vadimcn@gmail.com>"]
 edition = "2018"

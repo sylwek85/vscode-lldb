@@ -43,15 +43,22 @@ export async function startDebugAdapter(
     params: Dict<any>
 ): Promise<AdapterProcess> {
     let config = workspace.getConfiguration('lldb', folder ? folder.uri : undefined);
-    let adapterPath = path.join(context.extensionPath, 'adapter');
     let paramsBase64 = getAdapterParameters(config, params);
-    let lldbPath = config.get('executable', 'lldb');
+    var args: string[];
+    let lldbPath: string;
     let lldbEnv = config.get('executable_env', {});
-    let args = ['-b',
-        '-O', format('command script import \'%s\'', adapterPath),
-        '-O', format('script adapter.main.run_tcp_session(0, \'%s\')', paramsBase64)
-    ];
-    let lldb = spawnDebugger(args, config.get('executable', 'lldb'), lldbEnv);
+    if (!config.get('useCodeLLDB', false)) {
+        let adapterPath = path.join(context.extensionPath, 'adapter');
+        args = ['-b',
+            '-O', format('command script import \'%s\'', adapterPath),
+            '-O', format('script adapter.main.run_tcp_session(0, \'%s\')', paramsBase64)
+        ];
+        lldbPath = config.get('executable', 'lldb');
+    } else {
+        args = [];
+        lldbPath =  path.join(context.extensionPath, 'out/adapter2/codelldb');
+    }
+    let lldb = spawnDebugger(args, lldbPath, lldbEnv);
     let regex = new RegExp('^Listening on port (\\d+)\\s', 'm');
     let match = await waitPattern(lldb, regex);
 

@@ -17,13 +17,16 @@
 			]
 		},
 		{
-			"name": "codelldb2",
-			"preLaunchTask": "build codelldb2",
+			"name": "codelldb",
+			"preLaunchTask": "build codelldb",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/target/debug/codelldb2",
+			"program": "${workspaceFolder}/out/adapter2/codelldb",
+			"args": [
+				"--server"
+			],
 			"env": {
-				//"PATH": "${env:PATH};C:\\Python37-64",
+				//"PATH": "${env:PATH};C:\\Python37-64",				//"PATH": "${env:PATH};C:\\Python37-64",
 				"RUST_LOG": "debug",
 				"RUST_LOG_STYLE": "always",
 				"RUST_BACKTRACE": "1",
@@ -34,10 +37,10 @@
 			"terminal": "integrated"
 		},
 		{
-			"name": "codelldb2 cppvsdbg",
+			"name": "codelldb cppvsdbg",
 			"type": "cppvsdbg",
 			"request": "launch",
-			"program":  "${workspaceFolder}/target/debug/codelldb2.exe",
+			"program":  "${workspaceFolder}/target/debug/codelldb.exe",
 			"args": [],
 			"stopAtEntry": false,
 			"cwd": "${workspaceFolder}",
@@ -59,7 +62,7 @@
 					"test",
 					"--lib",
 					"--no-run",
-					"-p", "codelldb2"
+					"-p", "codelldb"
 				]
 			},
 			"args": ["--nocapture", "--test-threads=1"],
@@ -84,7 +87,7 @@
 		},
 		{
 			"name": "tests",
-			"preLaunchTask": "build",
+			//"preLaunchTask": "build",
 			"type": "node",
 			"request": "launch",
 			"cwd": "${workspaceRoot}",

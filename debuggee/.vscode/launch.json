@@ -13,7 +13,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Normal rusttypes",
-            "program": "${workspaceFolder}/../out/debuggee/rusttypes.exe",
+            "program": "${workspaceFolder}/../out/debuggee/rusttypes",
             "args": ["vars"],
             "cwd": "${workspaceFolder}",
             "terminal": "console",
@@ -24,7 +24,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "CodeLLDB2 debuggee",
+            "name": "DebugServer debuggee",
             "program": "${workspaceFolder}/../out/debuggee/debuggee",
             "args": ["vars"],
             "cwd": "${workspaceFolder}",
@@ -33,7 +33,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "CodeLLDB2 rusttypes",
+            "name": "DebugServer rusttypes",
             "program": "${workspaceFolder}/../out/debuggee/rusttypes",
             "args": ["vars"],
             "cwd": "${workspaceFolder}",

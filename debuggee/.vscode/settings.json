@@ -1,3 +1,4 @@
 {
-    "lldb.logLevel": 0
+    "lldb.logLevel": 0,
+    "lldb.useCodeLLDB": true
 }

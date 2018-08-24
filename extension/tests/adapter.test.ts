@@ -28,8 +28,9 @@ if (process.env.DEBUG_SERVER) {
 }
 
 setup(() => {
-    dc = new DebugClient('node', './out/tests/launcher.js', 'lldb');
-    return dc.start(port);
+    //dc = new DebugClient('node', './out/tests/launcher.js', 'lldb');
+    dc = new DebugClient(null, './out/adapter2/codelldb', 'lldb');
+    return dc.start(4711);
 });
 
 teardown(() => dc.stop());
