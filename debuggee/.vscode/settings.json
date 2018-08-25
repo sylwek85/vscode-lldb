@@ -1,4 +1,5 @@
 {
     "lldb.logLevel": 0,
-    "lldb.useCodeLLDB": true
+    "lldb.useCodeLLDB": true,
+    //"lldb.launch.debugServer": 4711
 }

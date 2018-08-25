@@ -21,6 +21,8 @@ fn main() -> Result<(), std::io::Error> {
     env_logger::Builder::from_default_env().init();
 
     unsafe {
+        //std::thread::sleep_ms(10000);
+
         let liblldb_path: &[u8] = if cfg!(os = "macos") {
             b"liblldb.dylib\0"
         } else {
@@ -47,8 +49,11 @@ fn main() -> Result<(), std::io::Error> {
         if entry.is_null() {
             panic!("{:?}", CStr::from_ptr(dlerror()));
         }
-        let entry: unsafe extern "C" fn() = mem::transmute(entry);
-        entry();
+        let entry: unsafe extern "C" fn(&[&str]) = mem::transmute(entry);
+
+        let args = env::args().collect::<Vec<_>>();
+        let arg_refs = args.iter().map(|a| a.as_ref()).collect::<Vec<_>>();
+        entry(&arg_refs);
     }
     Ok(())
 }
@@ -84,8 +89,11 @@ fn main() -> Result<(), std::io::Error> {
         if entry.is_null() {
             panic!("Could not get the entry point.");
         }
-        let entry: unsafe extern "C" fn() = mem::transmute(entry);
-        entry();
+        let entry: unsafe extern "C" fn(&[&str]) = mem::transmute(entry);
+
+        let args = env::args().collect::<Vec<_>>();
+        let arg_refs = args.iter().map(|a| a.as_ref()).collect::<Vec<_>>();
+        entry(&arg_refs);
     }
     Ok(())
 }

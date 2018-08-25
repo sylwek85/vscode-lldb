@@ -28,9 +28,11 @@ if (process.env.DEBUG_SERVER) {
 }
 
 setup(() => {
-    //dc = new DebugClient('node', './out/tests/launcher.js', 'lldb');
-    dc = new DebugClient(null, './out/adapter2/codelldb', 'lldb');
-    return dc.start(4711);
+    dc = new DebugClient('./out/adapter2/codelldb', '', 'lldb', {
+        env: { RUST_LOG: 'debug' }
+    });
+    (<any>dc)._enableStderr = true;
+    return dc.start();
 });
 
 teardown(() => dc.stop());

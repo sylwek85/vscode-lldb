@@ -1,4 +1,3 @@
-#![feature(rust_2018_preview)]
 #![feature(try_trait)]
 #![feature(fnbox)]
 #![feature(nll)]
@@ -30,8 +29,6 @@ extern crate tokio;
 extern crate tokio_codec;
 extern crate tokio_io;
 extern crate tokio_threadpool;
-
-use std::env;
 
 use futures::prelude::*;
 use tokio::prelude::*;
@@ -68,11 +65,11 @@ macro_rules! extract {
 }
 
 #[no_mangle]
-pub extern "C" fn entry() {
+pub extern "C" fn entry(args: &[&str]) {
     env_logger::Builder::from_default_env().init();
     SBDebugger::initialize();
 
-    if env::args().any(|a| a == "--server") {
+    if args.iter().any(|a| *a == "--server") {
         let addr = "127.0.0.1:4711".parse().unwrap();
         let listener = TcpListener::bind(&addr).unwrap();
         println!("Listening on port {}", addr.port());
@@ -92,30 +89,68 @@ pub extern "C" fn entry() {
             });
         tokio::run(server);
     } else {
-        unimplemented!()
+        let duplex = Duplex {
+            stdin: io::stdin(),
+            stdout: io::stdout(),
+        };
+        let server = run_debug_session(duplex).then(|r| {
+            info!("### session ended {:?}", r);
+            Ok(())
+        });
+        tokio::run(server);
     };
 
     debug!("Event loop terminated.");
     SBDebugger::terminate();
 }
 
-fn run_debug_session(stream: impl AsyncRead + AsyncWrite + Send + 'static) -> impl Future<Item=(), Error=io::Error> {
-    let (to_client, from_client) = wire_protocol::Codec::new().framed(stream).split();
-    let (to_session, from_session) = debug_session::tokio::DebugSessionTokio::new().split();
+struct Duplex {
+    stdin: io::Stdin,
+    stdout: io::Stdout,
+}
 
-    let client_to_session = from_client.map_err(|_| ()).forward(to_session).then(|r| {
-        info!("### client_to_session resolved");
-        Ok(())
-    });
-    tokio::spawn(client_to_session);
+impl io::Read for Duplex {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
+        self.stdin.read(buf)
+    }
+}
 
-    let session_to_client = from_session
-        .map_err(|err| io::Error::new(io::ErrorKind::Other, "DebugSession error"))
-        .forward(to_client)
-        .then(|r| {
-            info!("### session_to_client resolved");
+impl io::Write for Duplex {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
+        self.stdout.write(buf)
+    }
+    fn flush(&mut self) -> Result<(), io::Error> {
+        self.stdout.flush()
+    }
+}
+impl io::AsyncRead for Duplex {}
+impl io::AsyncWrite for Duplex {
+    fn shutdown(&mut self) -> Result<Async<()>, io::Error> {
+        self.stdout.shutdown()
+    }
+}
+
+fn run_debug_session(
+    stream: impl AsyncRead + AsyncWrite + Send + 'static,
+) -> impl Future<Item = (), Error = io::Error> {
+    future::lazy(|| {
+        let (to_client, from_client) = wire_protocol::Codec::new().framed(stream).split();
+        let (to_session, from_session) = debug_session::tokio::DebugSessionTokio::new().split();
+
+        let client_to_session = from_client.map_err(|_| ()).forward(to_session).then(|r| {
+            info!("### client_to_session resolved");
             Ok(())
         });
+        tokio::spawn(client_to_session);
 
-    session_to_client
+        let session_to_client = from_session
+            .map_err(|err| io::Error::new(io::ErrorKind::Other, "DebugSession error"))
+            .forward(to_client)
+            .then(|r| {
+                info!("### session_to_client resolved");
+                Ok(())
+            });
+
+        session_to_client
+    })
 }
