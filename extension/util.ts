@@ -3,6 +3,7 @@ import * as cp from 'child_process';
 import { format } from 'util';
 import { QuickPickItem, WorkspaceConfiguration } from 'vscode';
 import { Dict } from './extension';
+import * as stream from 'stream';
 
 let expandVarRegex = /\$\{(?:([^:}]+):)?([^}]+)\}/g;
 
@@ -156,4 +157,56 @@ function isScalarValue(value: any) {
         typeof value == 'boolean' || value instanceof Boolean ||
         typeof value == 'number' || value instanceof Number ||
         typeof value == 'string' || value instanceof String;
+}
+
+export function waitForPattern(
+    process: cp.ChildProcess,
+    channel: stream.Readable,
+    pattern: RegExp,
+    timeout_millis = 5000
+) {
+    return new Promise<RegExpExecArray>((resolve, reject) => {
+        var promisePending = true;
+        var prcoessOutput = '';
+        // Wait for expected pattern in channel.
+        channel.on('data', (chunk) => {
+            let chunkStr = chunk.toString();
+            if (promisePending) {
+                prcoessOutput += chunkStr;
+                let match = pattern.exec(prcoessOutput);
+                if (match) {
+                    clearTimeout(timer);
+                    prcoessOutput = null;
+                    promisePending = false;
+                    resolve(match);
+                }
+            }
+        });
+        // On spawn error.
+        process.on('error', (err) => {
+            promisePending = false;
+            reject(err);
+        });
+        // Bail if LLDB does not start within the specified timeout.
+        let timer = setTimeout(() => {
+            if (promisePending) {
+                process.kill();
+                let err = Error('The debugger did not start within the allotted time.');
+                (<any>err).code = 'Timeout';
+                (<any>err).stdout = prcoessOutput;
+                promisePending = false;
+                reject(err);
+            }
+        }, timeout_millis);
+        // Premature exit.
+        process.on('exit', (code, signal) => {
+            if (promisePending) {
+                let err = Error('The debugger exited without completing startup handshake.');
+                (<any>err).code = 'Handshake';
+                (<any>err).stdout = prcoessOutput;
+                promisePending = false;
+                reject(err);
+            }
+        });
+    });
 }

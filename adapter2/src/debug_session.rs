@@ -161,86 +161,90 @@ impl DebugSession {
     fn handle_response(&mut self, response: Response) {}
 
     fn handle_request(&mut self, request: Request) {
-        //info!("Received message: {:?}", request);
-        #[cfg_attr(rustfmt, rustfmt_skip)]
-        let result = match request.arguments {
-            RequestArguments::initialize(args) =>
-                self.handle_initialize(args)
-                    .map(|r| ResponseBody::initialize(r)),
-            RequestArguments::setBreakpoints(args) =>
-                self.handle_set_breakpoints(args)
-                    .map(|r| ResponseBody::setBreakpoints(r)),
-            RequestArguments::setFunctionBreakpoints(args) =>
-                self.handle_set_function_breakpoints(args)
-                    .map(|r| ResponseBody::setFunctionBreakpoints(r)),
-            RequestArguments::setExceptionBreakpoints(args) =>
-                self.handle_set_exception_breakpoints(args)
-                    .map(|r| ResponseBody::setExceptionBreakpoints),
-            RequestArguments::launch(args) => {
-                match self.handle_launch(args) {
-                    Ok(responder) => {
-                        self.on_configuration_done = Some((request.seq, responder));
-                        return; // launch responds asynchronously
+        let result = if let Some(arguments) = request.arguments {
+            #[cfg_attr(rustfmt, rustfmt_skip)]
+            match arguments {
+                RequestArguments::initialize(args) =>
+                    self.handle_initialize(args)
+                        .map(|r| ResponseBody::initialize(r)),
+                RequestArguments::setBreakpoints(args) =>
+                    self.handle_set_breakpoints(args)
+                        .map(|r| ResponseBody::setBreakpoints(r)),
+                RequestArguments::setFunctionBreakpoints(args) =>
+                    self.handle_set_function_breakpoints(args)
+                        .map(|r| ResponseBody::setFunctionBreakpoints(r)),
+                RequestArguments::setExceptionBreakpoints(args) =>
+                    self.handle_set_exception_breakpoints(args)
+                        .map(|r| ResponseBody::setExceptionBreakpoints),
+                RequestArguments::launch(args) => {
+                    match self.handle_launch(args) {
+                        Ok(responder) => {
+                            self.on_configuration_done = Some((request.seq, responder));
+                            return; // launch responds asynchronously
+                        }
+                        Err(err) => Err(err),
                     }
-                    Err(err) => Err(err),
+                }
+                RequestArguments::attach(args) => {
+                    match self.handle_attach(args) {
+                        Ok(responder) => {
+                            self.on_configuration_done = Some((request.seq, responder));
+                            return; // attach responds asynchronously
+                        }
+                        Err(err) => Err(err),
+                    }
+                }
+                RequestArguments::configurationDone =>
+                    self.handle_configuration_done()
+                        .map(|r| ResponseBody::configurationDone),
+                RequestArguments::threads =>
+                    self.handle_threads()
+                        .map(|r| ResponseBody::threads(r)),
+                RequestArguments::stackTrace(args) =>
+                    self.handle_stack_trace(args)
+                        .map(|r| ResponseBody::stackTrace(r)),
+                RequestArguments::scopes(args) =>
+                    self.handle_scopes(args)
+                        .map(|r| ResponseBody::scopes(r)),
+                RequestArguments::variables(args) =>
+                    self.handle_variables(args)
+                        .map(|r| ResponseBody::variables(r)),
+                RequestArguments::evaluate(args) =>
+                    self.handle_evaluate(args)
+                        .map(|r| ResponseBody::evaluate(r)),
+                RequestArguments::pause(args) =>
+                    self.handle_pause(args)
+                        .map(|_| ResponseBody::pause),
+                RequestArguments::continue_(args) =>
+                    self.handle_continue(args)
+                        .map(|r| ResponseBody::continue_(r)),
+                RequestArguments::next(args) =>
+                    self.handle_next(args)
+                        .map(|r| ResponseBody::next),
+                RequestArguments::stepIn(args) =>
+                    self.handle_step_in(args)
+                        .map(|r| ResponseBody::stepIn),
+                RequestArguments::stepOut(args) =>
+                    self.handle_step_out(args)
+                        .map(|r| ResponseBody::stepOut),
+                RequestArguments::source(args) =>
+                    self.handle_source(args)
+                        .map(|r| ResponseBody::source(r)),
+                RequestArguments::disconnect(args) =>
+                    self.handle_disconnect(Some(args))
+                        .map(|_| ResponseBody::disconnect),
+                RequestArguments::displaySettings(args) =>
+                    self.handle_display_settings(args)
+                        .map(|_| ResponseBody::displaySettings),
+                _ => {
+                    //error!("No handler for request message: {:?}", request);
+                    Err(Error::Internal("Not implemented.".into()))
                 }
             }
-            RequestArguments::attach(args) => {
-                match self.handle_attach(args) {
-                    Ok(responder) => {
-                        self.on_configuration_done = Some((request.seq, responder));
-                        return; // attach responds asynchronously
-                    }
-                    Err(err) => Err(err),
-                }
-            }
-            RequestArguments::configurationDone =>
-                self.handle_configuration_done()
-                    .map(|r| ResponseBody::configurationDone),
-            RequestArguments::threads =>
-                self.handle_threads()
-                    .map(|r| ResponseBody::threads(r)),
-            RequestArguments::stackTrace(args) =>
-                self.handle_stack_trace(args)
-                    .map(|r| ResponseBody::stackTrace(r)),
-            RequestArguments::scopes(args) =>
-                self.handle_scopes(args)
-                    .map(|r| ResponseBody::scopes(r)),
-            RequestArguments::variables(args) =>
-                self.handle_variables(args)
-                    .map(|r| ResponseBody::variables(r)),
-            RequestArguments::evaluate(args) =>
-                self.handle_evaluate(args)
-                    .map(|r| ResponseBody::evaluate(r)),
-            RequestArguments::pause(args) =>
-                self.handle_pause(args)
-                    .map(|_| ResponseBody::pause),
-            RequestArguments::continue_(args) =>
-                self.handle_continue(args)
-                    .map(|r| ResponseBody::continue_(r)),
-            RequestArguments::next(args) =>
-                self.handle_next(args)
-                    .map(|r| ResponseBody::next),
-            RequestArguments::stepIn(args) =>
-                self.handle_step_in(args)
-                    .map(|r| ResponseBody::stepIn),
-            RequestArguments::stepOut(args) =>
-                self.handle_step_out(args)
-                    .map(|r| ResponseBody::stepOut),
-            RequestArguments::source(args) =>
-                self.handle_source(args)
-                    .map(|r| ResponseBody::source(r)),
-            RequestArguments::disconnect(args) =>
-                self.handle_disconnect(args)
-                    .map(|_| ResponseBody::disconnect),
-            RequestArguments::displaySettings(args) =>
-                self.handle_display_settings(args)
-                    .map(|_| ResponseBody::displaySettings),
-            _ => {
-                error!("No handler for request message: {:?}", request);
-                Err(Error::Internal("Not implemented.".into()))
-            }
+        } else {
+            self.handle_disconnect(None).map(|_| ResponseBody::disconnect)
         };
+        info!("sending result {:?}", result);
         self.send_response(request.seq, result);
     }
 
@@ -280,7 +284,7 @@ impl DebugSession {
     fn send_request(&mut self, args: RequestArguments) {
         let request = ProtocolMessage::Request(Request {
             seq: self.request_seq,
-            arguments: args,
+            arguments: Some(args),
         });
         self.request_seq += 1;
         self.send_message
@@ -1299,15 +1303,23 @@ impl DebugSession {
         })
     }
 
-    fn handle_disconnect(&mut self, args: DisconnectArguments) -> Result<(), Error> {
+    fn handle_disconnect(&mut self, args: Option<DisconnectArguments>) -> Result<(), Error> {
         if let Some(commands) = &self.exit_commands {
             self.exec_commands(&commands);
         }
-        let terminate = args.terminate_debuggee.unwrap_or(self.process_launched);
-        if terminate {
-            self.process.kill();
-        } else {
-            self.process.detach();
+        let terminate = match args {
+            None => self.process_launched,
+            Some(args) => match args.terminate_debuggee {
+                None => self.process_launched,
+                Some(terminate) => terminate,
+            },
+        };
+        if let Initialized(ref process) = self.process {
+            if terminate {
+                process.kill();
+            } else {
+                process.detach();
+            }
         }
         self.shutdown.request_cancellation();
         Ok(())

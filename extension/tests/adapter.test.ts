@@ -11,6 +11,7 @@ import * as ver from '../ver';
 import * as util from '../util';
 
 var dc: DebugClient;
+var adapter: cp.ChildProcess;
 
 const projectDir = path.join(__dirname, '..', '..');
 
@@ -27,15 +28,28 @@ if (process.env.DEBUG_SERVER) {
     console.log('Debug server port:', port)
 }
 
-setup(() => {
-    dc = new DebugClient('./out/adapter2/codelldb', '', 'lldb', {
-        env: { RUST_LOG: 'debug' }
-    });
-    (<any>dc)._enableStderr = true;
-    return dc.start();
-});
+async function createDebugClient() {
+    // adapter = cp.spawn('./out/adapter2/codelldb', [], {
+    //     env: { RUST_LOG: 'debug' }
+    // });
+    // adapter.stderr.on('data', (data) => {
+    //     console.log(data.toString());
+    // });
 
-teardown(() => dc.stop());
+    // let regex = new RegExp('^Listening on port (\\d+)\\s', 'm');
+    // let match = await util.waitForPattern(adapter, adapter.stdout, regex);
+    // let port = parseInt(match[1]);
+
+    dc = new DebugClient('', '', 'lldb')
+    await dc.start(4711);
+}
+
+async function shutdownDebugClient() {
+    await dc.stop();
+    //adapter.kill();
+    dc = null;
+    //adapter = null;
+}
 
 suite('Versions', () => {
     test('comparisons', async () => {
@@ -77,6 +91,10 @@ suite('Util', () => {
 })
 
 suite('Basic', () => {
+
+    setup(() => createDebugClient());
+
+    teardown(() => shutdownDebugClient());
 
     test('run program to the end', async () => {
         let terminatedAsync = dc.waitForEvent('terminated');

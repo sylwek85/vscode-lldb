@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt::Write;
 use std::str;
 use tokio::io;
-use tokio_io::codec;
+use tokio::codec;
 
 use crate::debug_protocol::ProtocolMessage;
 use serde_json::{self, Value};

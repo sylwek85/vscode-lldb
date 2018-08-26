@@ -33,7 +33,7 @@ pub enum ProtocolMessage {
 pub struct Request {
     pub seq: u32,
     #[serde(flatten)]
-    pub arguments: RequestArguments,
+    pub arguments: Option<RequestArguments>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

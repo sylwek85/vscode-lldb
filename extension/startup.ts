@@ -238,57 +238,15 @@ function spawnDebugger(args: string[], lldbPath: string, lldbEnv: Dict<string>):
     return cp.spawn(lldbPath, args, options);
 }
 
-function waitPattern(lldb: cp.ChildProcess, pattern: RegExp, timeout_millis = 5000) {
-    return new Promise<RegExpExecArray>((resolve, reject) => {
-        var promisePending = true;
-        var adapterOutput = '';
-        // Wait for expected pattern in stdout.
-        lldb.stdout.on('data', (chunk) => {
-            let chunkStr = chunk.toString();
-            output.append(chunkStr); // Send to "LLDB" output pane.
-            if (promisePending) {
-                adapterOutput += chunkStr;
-                let match = pattern.exec(adapterOutput);
-                if (match) {
-                    clearTimeout(timer);
-                    adapterOutput = null;
-                    promisePending = false;
-                    resolve(match);
-                }
-            }
-        });
-        // Send sdterr to the output pane as well.
-        lldb.stderr.on('data', (chunk) => {
-            let chunkStr = chunk.toString();
-            output.append(chunkStr);
-        });
-        // On spawn error.
-        lldb.on('error', (err) => {
-            promisePending = false;
-            reject(err);
-        });
-        // Bail if LLDB does not start within the specified timeout.
-        let timer = setTimeout(() => {
-            if (promisePending) {
-                lldb.kill();
-                let err = Error('The debugger did not start within the allotted time.');
-                (<any>err).code = 'Timeout';
-                (<any>err).stdout = adapterOutput;
-                promisePending = false;
-                reject(err);
-            }
-        }, timeout_millis);
-        // Premature exit.
-        lldb.on('exit', (code, signal) => {
-            if (promisePending) {
-                let err = Error('The debugger exited without completing startup handshake.');
-                (<any>err).code = 'Handshake';
-                (<any>err).stdout = adapterOutput;
-                promisePending = false;
-                reject(err);
-            }
-        });
+async function waitPattern(lldb: cp.ChildProcess, pattern: RegExp, timeout_millis = 5000) {
+    lldb.stdout.on('data', (chunk) => {
+        output.append(chunk.toString()); // Send to "LLDB" output pane.
     });
+    // Send sdterr to the output pane as well.
+    lldb.stderr.on('data', (chunk) => {
+        output.append(chunk.toString());
+    });
+    return util.waitForPattern(lldb, lldb.stdout, pattern, timeout_millis);
 }
 
 export async function analyzeStartupError(err: Error) {
