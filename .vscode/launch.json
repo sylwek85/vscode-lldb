@@ -23,7 +23,6 @@
 			"request": "launch",
 			"program": "${workspaceFolder}/out/adapter2/codelldb",
 			"args": [
-				//"--server"
 			],
 			"env": {
 				//"PATH": "${env:PATH};C:\\Python37-64",				//"PATH": "${env:PATH};C:\\Python37-64",
@@ -109,7 +108,7 @@
 				"-u", "tdd",
 				"--timeout", "999999",
 				"--colors",
-				//"-g", "stack",
+				"-g", "disass",
 				"./out/tests"
 			],
 			"env": {

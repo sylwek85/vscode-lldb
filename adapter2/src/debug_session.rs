@@ -244,7 +244,6 @@ impl DebugSession {
         } else {
             self.handle_disconnect(None).map(|_| ResponseBody::disconnect)
         };
-        info!("sending result {:?}", result);
         self.send_response(request.seq, result);
     }
 
