@@ -15,6 +15,7 @@ use std::option;
 use std::path::{self, Component, Path, PathBuf};
 use std::rc::Rc;
 use std::str;
+use std::sync::{Arc, Mutex, Weak};
 
 use futures::sync::mpsc;
 
@@ -84,6 +85,7 @@ pub struct DebugSession {
     request_seq: u32,
     shutdown: CancellationSource,
     event_listener: SBListener,
+    self_ref: MustInitialize<Weak<Mutex<DebugSession>>>,
     debugger: MustInitialize<SBDebugger>,
     target: MustInitialize<SBTarget>,
     process: MustInitialize<SBProcess>,
@@ -96,7 +98,7 @@ pub struct DebugSession {
     disassembly: MustInitialize<disassembly::AddressSpace>,
     known_threads: HashSet<ThreadID>,
     source_map: source_map::SourceMap,
-    source_map_cache: HashMap<(Cow<'static, str>, Cow<'static, str>), Option<Rc<String>>>,
+    source_map_cache: RefCell<HashMap<(Cow<'static, str>, Cow<'static, str>), Option<Rc<String>>>>,
     loaded_modules: Vec<SBModule>,
     exit_commands: Option<Vec<String>>,
     terminal: Option<Terminal>,
@@ -124,6 +126,7 @@ impl DebugSession {
             send_message: send_message,
             request_seq: 1,
             shutdown: shutdown,
+            self_ref: NotInitialized,
             debugger: NotInitialized,
             target: NotInitialized,
             process: NotInitialized,
@@ -137,7 +140,7 @@ impl DebugSession {
             disassembly: NotInitialized,
             known_threads: HashSet::new(),
             source_map: source_map::SourceMap::empty(),
-            source_map_cache: HashMap::new(),
+            source_map_cache: RefCell::new(HashMap::new()),
             loaded_modules: Vec::new(),
             exit_commands: None,
             terminal: None,
@@ -526,19 +529,39 @@ impl DebugSession {
         } else {
             bp.clear_callback();
         }
+
+        let self_ref = self.self_ref.clone();
+        bp.set_callback(move |process, thread, location| {
+            if let Some(self_ref) = self_ref.upgrade() {
+                let session = self_ref.lock().unwrap();
+                let breakpoints = session.breakpoints.borrow();
+                let bp_info = breakpoints.get(&location.breakpoint().id()).unwrap();
+                if session.is_valid_source_bp_location(&location, bp_info) {
+                    true
+                } else {
+                    location.set_enabled(false);
+                    false
+                }
+            } else {
+                false
+            }
+        });
         // TODO: hit count & log_message
     }
 
-    fn is_valid_source_bp_location(&self, bp_loc: &SBBreakpointLocation, bp_info: &mut BreakpointInfo) -> bool {
-        if let Some(le) = bp_loc.address().line_entry() {
-            if let BreakpointKind::Source {
-                ref mut resolved_line, ..
-            } = bp_info.kind
-            {
-                *resolved_line = Some(le.line());
-            }
+    fn is_valid_source_bp_location(&self, bp_loc: &SBBreakpointLocation, bp_info: &BreakpointInfo) -> bool {
+        match &bp_info.kind {
+            BreakpointKind::Source { file_path, .. } => if let Some(le) = bp_loc.address().line_entry() {
+                if let Some(local_path) = self.map_filespec_to_local(&le.file_spec()) {
+                    &local_path[..] == file_path
+                } else {
+                    false
+                }
+            } else {
+                false
+            },
+            _ => true,
         }
-        true
     }
 
     fn handle_launch(&mut self, args: LaunchRequestArguments) -> Result<Box<AsyncResponder>, Error> {
@@ -1519,13 +1542,14 @@ impl DebugSession {
         }
     }
 
-    fn map_filespec_to_local(&mut self, filespec: &SBFileSpec) -> Option<Rc<String>> {
+    fn map_filespec_to_local(&self, filespec: &SBFileSpec) -> Option<Rc<String>> {
         if !filespec.is_valid() {
             return None;
         } else {
             let directory = filespec.directory();
             let filename = filespec.filename();
-            match self.source_map_cache.get(&(directory.into(), filename.into())) {
+            let mut source_map_cache = self.source_map_cache.borrow_mut();
+            match source_map_cache.get(&(directory.into(), filename.into())) {
                 Some(localized) => localized.clone(),
                 None => {
                     debug!("filespec={:?}", filespec);
@@ -1536,7 +1560,7 @@ impl DebugSession {
                         }
                     }
                     let localized = localized.map(|path| Rc::new(path.to_string_lossy().into_owned()));
-                    self.source_map_cache.insert(
+                    source_map_cache.insert(
                         (directory.to_owned().into(), filename.to_owned().into()),
                         localized.clone(),
                     );

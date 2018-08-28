@@ -23,6 +23,7 @@
 			"request": "launch",
 			"program": "${workspaceFolder}/out/adapter2/codelldb",
 			"args": [
+				"--multi-session"
 			],
 			"env": {
 				//"PATH": "${env:PATH};C:\\Python37-64",				//"PATH": "${env:PATH};C:\\Python37-64",

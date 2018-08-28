@@ -12,6 +12,7 @@ use tokio_threadpool::blocking;
 use super::*;
 use crate::cancellation::{CancellationSource, CancellationToken};
 use crate::debug_protocol::*;
+use crate::must_initialize::MustInitialize;
 
 pub struct DebugSessionTokio {
     inner: Arc<Mutex<DebugSession>>,
@@ -36,6 +37,8 @@ impl DebugSessionTokio {
         let shutdown_token = shutdown.cancellation_token();
 
         let inner = Arc::new(Mutex::new(DebugSession::new(sender_out, shutdown)));
+        let weak_inner = Arc::downgrade(&inner);
+        inner.lock().unwrap().self_ref = MustInitialize::Initialized(weak_inner);
 
         // Dispatch incoming requests to inner.handle_message()
         let inner2 = inner.clone();
