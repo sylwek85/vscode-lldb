@@ -32,10 +32,15 @@ impl SBTarget {
             Err(error)
         }
     }
-    pub fn find_breakpoint_by_id(&self, id: BreakpointID) -> SBBreakpoint {
-        cpp!(unsafe [self as "SBTarget*", id as "break_id_t"] -> SBBreakpoint as "SBBreakpoint" {
+    pub fn find_breakpoint_by_id(&self, id: BreakpointID) -> Option<SBBreakpoint> {
+        let bp = cpp!(unsafe [self as "SBTarget*", id as "break_id_t"] -> SBBreakpoint as "SBBreakpoint" {
             return self->FindBreakpointByID(id);
-        })
+        });
+        if bp.is_valid() {
+            Some(bp)
+        } else {
+            None
+        }
     }
     pub fn breakpoint_create_by_location(&self, file: &str, line: u32) -> SBBreakpoint {
         with_cstr(file, |file| {

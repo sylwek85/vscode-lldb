@@ -109,7 +109,7 @@
 				"-u", "tdd",
 				"--timeout", "999999",
 				"--colors",
-				"-g", "disass",
+				"-g", "entry",
 				"./out/tests"
 			],
 			"env": {

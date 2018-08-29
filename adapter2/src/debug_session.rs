@@ -27,7 +27,7 @@ use crate::expressions;
 use crate::handles::{self, Handle, HandleTree};
 use crate::must_initialize::{Initialized, MustInitialize, NotInitialized};
 use crate::python::{self, PythonValue};
-use crate::source_map;
+use crate::source_map::{self, normalize_path};
 use crate::terminal::Terminal;
 use lldb::*;
 
@@ -46,7 +46,6 @@ enum BreakpointKind {
     Source {
         file_path: String,
         resolved_line: Option<u32>,
-        valid_locations: Vec<BreakpointID>,
     },
     Function,
     Assembly {
@@ -364,64 +363,54 @@ impl DebugSession {
         let mut breakpoints_resp = vec![];
         let mut breakpoints = self.breakpoints.borrow_mut();
         for req in requested_bps {
-            let mut bp_resp = Breakpoint { ..Default::default() };
+            let file_path_norm = normalize_path(file_path);
+            let file_name = file_path_norm.file_name().unwrap().to_str().unwrap();
+            // Find existing breakpoint or create a new one
+            let mut bp = match existing_bps
+                .get(&req.line)
+                .and_then(|bp_id| self.target.find_breakpoint_by_id(*bp_id))
+            {
+                Some(bp) => bp,
+                None => self.target.breakpoint_create_by_location(file_name, req.line as u32),
+            };
 
-            let (mut bp, bp_info) = if let Some(bp_id) = existing_bps.get(&req.line).cloned() {
-                let bp = self.target.find_breakpoint_by_id(bp_id);
-                let bp_info = breakpoints.get_mut(&bp_id).unwrap();
-                bp_resp.id = Some(bp.id() as i64);
-                bp_resp.verified = true;
-                (bp, bp_info)
-            } else {
-                let file_name = Path::new(file_path).file_name().unwrap().to_str().unwrap();
-                let bp = self.target.breakpoint_create_by_location(file_name, req.line as u32);
-
-                let mut bp_info = BreakpointInfo {
-                    id: bp.id(),
-                    kind: BreakpointKind::Source {
-                        file_path: file_path.to_owned(),
-                        resolved_line: None,
-                        valid_locations: vec![],
-                    },
-                    condition: None,
-                    log_message: None,
-                    ignore_count: 0,
-                };
-
-                let bp_id = bp_info.id;
-                existing_bps.insert(req.line, bp_info.id);
-                bp_resp.id = Some(bp_info.id as i64);
-
-                // Filter locations on full source file path
-                for bp_loc in bp.locations() {
-                    if !self.is_valid_source_bp_location(&bp_loc, &mut bp_info) {
-                        bp_loc.set_enabled(false);
-                        //info!("Disabled BP location {}", bp_loc);
+            // Filter locations on full source file path
+            let mut resolved_line = None;
+            for bp_loc in bp.locations() {
+                if let Some(le) = bp_loc.address().line_entry() {
+                    if normalize_path(le.file_spec().path()) == file_path_norm {
+                        resolved_line = Some(le.line());
                     }
                 }
+            }
 
-                if let BreakpointKind::Source {
-                    resolved_line: Some(line),
-                    ..
-                } = bp_info.kind
-                {
-                    bp_resp.verified = true;
-                    bp_resp.line = Some(line as i64);
-                    bp_resp.source = Some(Source {
-                        name: Some(file_name.to_owned()),
-                        path: Some(file_path.to_owned()),
-                        adapter_data: Some(json!(bp_info.id)),
-                        ..Default::default()
-                    })
-                }
-                let bp_info = breakpoints.entry(bp_info.id).or_insert(bp_info);
-                (bp, bp_info)
+            let mut bp_info = BreakpointInfo {
+                id: bp.id(),
+                kind: BreakpointKind::Source {
+                    file_path: file_path.to_owned(),
+                    resolved_line: resolved_line,
+                },
+                condition: req.condition.clone(),
+                log_message: req.log_message.clone(),
+                ignore_count: 0,
             };
-            bp_info.condition = req.condition.clone();
-            bp_info.log_message = req.log_message.clone();
+            let bp_info = breakpoints.entry(bp_info.id).or_insert(bp_info);
+
+            existing_bps.insert(req.line, bp_info.id);
 
             self.init_bp_actions(&mut bp, bp_info);
 
+            let mut bp_resp = Breakpoint {
+                id: Some(bp_info.id as i64),
+                verified: resolved_line.is_some(),
+                line: resolved_line.map(|l| l as i64),
+                source: Some(Source {
+                    name: Some(file_name.to_owned()),
+                    path: Some(file_path.to_owned()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
             breakpoints_resp.push(bp_resp);
         }
         breakpoints_resp
@@ -435,32 +424,30 @@ impl DebugSession {
 
         let mut breakpoints = self.breakpoints.borrow_mut();
         for bp_req in args.breakpoints {
-            let (mut bp, bp_info) = match self.fn_breakpoints.get(&bp_req.name) {
-                Some(bp_id) => {
-                    let bp = self.target.find_breakpoint_by_id(*bp_id);
-                    let bp_info = breakpoints.get_mut(bp_id).unwrap();
-                    (bp, bp_info)
-                }
-                None => {
-                    let bp = if bp_req.name.starts_with("/re ") {
-                        self.target.breakpoint_create_by_regex(&bp_req.name[4..])
-                    } else {
-                        self.target.breakpoint_create_by_name(&bp_req.name)
-                    };
-                    let bp_info = BreakpointInfo {
-                        id: bp.id(),
-                        kind: BreakpointKind::Function,
-                        condition: None,
-                        log_message: None,
-                        ignore_count: 0,
-                    };
-                    let bp_info = breakpoints.entry(bp_info.id).or_insert(bp_info);
-                    (bp, bp_info)
-                }
+            // Find existing breakpoint or create a new one
+            let mut bp = match self
+                .fn_breakpoints
+                .get(&bp_req.name)
+                .and_then(|bp_id| self.target.find_breakpoint_by_id(*bp_id))
+            {
+                Some(bp) => bp,
+                None => if bp_req.name.starts_with("/re ") {
+                    self.target.breakpoint_create_by_regex(&bp_req.name[4..])
+                } else {
+                    self.target.breakpoint_create_by_name(&bp_req.name)
+                },
             };
-            bp_info.condition = bp_req.condition;
 
-            let bp_id = bp_info.id;
+            let bp_id = bp.id();
+            let bp_info = BreakpointInfo {
+                id: bp_id,
+                kind: BreakpointKind::Function,
+                condition: bp_req.condition,
+                log_message: None,
+                ignore_count: 0,
+            };
+            let bp_info = breakpoints.entry(bp_id).or_insert(bp_info);
+
             self.init_bp_actions(&mut bp, bp_info);
 
             new_fn_breakpoints.insert(bp_req.name, bp_id);
@@ -509,26 +496,19 @@ impl DebugSession {
             }
         }
 
-        if let Some(ref condition) = bp_info.condition {
+        let py_condition = if let Some(ref condition) = bp_info.condition {
             let (expr, ty) = self.get_expression_type(condition);
             match ty {
-                ExprType::Native => bp.set_condition(expr),
-                ExprType::Simple => {
-                    let pp_expr = expressions::preprocess_simple_expr(expr);
-                    bp.set_callback(move |process, thread, location| {
-                        evaluate_python_bp_condition(&pp_expr, process, thread, location)
-                    });
+                ExprType::Native => {
+                    bp.set_condition(expr);
+                    None
                 }
-                ExprType::Python => {
-                    let pp_expr = expressions::preprocess_python_expr(expr);
-                    bp.set_callback(move |process, thread, location| {
-                        evaluate_python_bp_condition(&pp_expr, process, thread, location)
-                    });
-                }
+                ExprType::Simple => Some(expressions::preprocess_simple_expr(expr)),
+                ExprType::Python => Some(expressions::preprocess_python_expr(expr)),
             }
         } else {
-            bp.clear_callback();
-        }
+            None
+        };
 
         let self_ref = self.self_ref.clone();
         bp.set_callback(move |process, thread, location| {
@@ -537,7 +517,11 @@ impl DebugSession {
                 let breakpoints = session.breakpoints.borrow();
                 let bp_info = breakpoints.get(&location.breakpoint().id()).unwrap();
                 if session.is_valid_source_bp_location(&location, bp_info) {
-                    true
+                    if let Some(ref py_condition) = py_condition {
+                        evaluate_python_bp_condition(py_condition, process, thread, location)
+                    } else {
+                        true
+                    }
                 } else {
                     location.set_enabled(false);
                     false
@@ -546,6 +530,7 @@ impl DebugSession {
                 false
             }
         });
+
         // TODO: hit count & log_message
     }
 
