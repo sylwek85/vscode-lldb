@@ -121,23 +121,6 @@ impl<'a> SBProcessEvent<'a> {
     pub const BroadcastBitStructuredData: u32 = (1 << 5);
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
-#[repr(u32)]
-pub enum ProcessState {
-    Invalid = 0,
-    Unloaded = 1,
-    Connected = 2,
-    Attaching = 3,
-    Launching = 4,
-    Stopped = 5,
-    Running = 6,
-    Stepping = 7,
-    Crashed = 8,
-    Detached = 9,
-    Exited = 10,
-    Suspended = 11,
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub struct SBTargetEvent<'a>(&'a SBEvent);

@@ -24,3 +24,13 @@ impl SBInstructionList {
         SBIterator::new(self.len() as u32, move |index| self.instruction_at_index(index))
     }
 }
+
+impl fmt::Debug for SBInstructionList {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        debug_descr(f, |descr| {
+            cpp!(unsafe [self as "SBInstructionList*", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr);
+            })
+        })
+    }
+}

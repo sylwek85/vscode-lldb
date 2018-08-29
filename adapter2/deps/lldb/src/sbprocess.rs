@@ -99,3 +99,46 @@ impl fmt::Debug for SBProcess {
         })
     }
 }
+
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+#[repr(u32)]
+pub enum ProcessState {
+    Invalid = 0,
+    Unloaded = 1,
+    Connected = 2,
+    Attaching = 3,
+    Launching = 4,
+    Stopped = 5,
+    Running = 6,
+    Stepping = 7,
+    Crashed = 8,
+    Detached = 9,
+    Exited = 10,
+    Suspended = 11,
+}
+
+impl ProcessState {
+    pub fn is_alive(&self) -> bool {
+        use ProcessState::*;
+        match self {
+            Attaching | Launching | Stopped | Running | Stepping | Crashed | Suspended => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        use ProcessState::*;
+        match self {
+            Running | Stepping => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        use ProcessState::*;
+        match self {
+            Stopped | Crashed | Suspended => true,
+            _ => false,
+        }
+    }
+}

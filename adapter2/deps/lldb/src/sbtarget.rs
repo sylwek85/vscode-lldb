@@ -69,7 +69,6 @@ impl SBTarget {
         })
     }
     pub fn read_instructions(&self, base_addr: &SBAddress, count: u32) -> SBInstructionList {
-        let base_addr = base_addr.clone();
         cpp!(unsafe [self as "SBTarget*", base_addr as "SBAddress*", count as "uint32_t"] -> SBInstructionList as "SBInstructionList" {
             return self->ReadInstructions(*base_addr, count);
         })

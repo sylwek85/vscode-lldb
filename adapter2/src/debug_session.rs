@@ -601,6 +601,11 @@ impl DebugSession {
 
         self.process = Initialized(self.target.launch(&launch_info)?);
         self.process_launched = true;
+
+        if self.process.state().is_stopped() {
+            self.notify_process_stopped();
+        }
+
         if let Some(commands) = args.post_run_commands {
             self.exec_commands(&commands);
         }
@@ -1254,7 +1259,13 @@ impl DebugSession {
         if error.is_success() {
             Ok(())
         } else {
-            Err(Error::UserError(error.message().into()))
+            if self.process.state().is_stopped() {
+                // Did we lose a 'stopped' event?
+                self.notify_process_stopped();
+                Ok(())
+            } else {
+                Err(Error::UserError(error.message().into()))
+            }
         }
     }
 
@@ -1266,7 +1277,15 @@ impl DebugSession {
                 all_threads_continued: Some(true),
             })
         } else {
-            Err(Error::UserError(error.message().into()))
+            if self.process.state().is_running() {
+                // Did we lose a 'running' event?
+                self.notify_process_running();
+                Ok(ContinueResponseBody {
+                    all_threads_continued: Some(true),
+                })
+            } else {
+                Err(Error::UserError(error.message().into()))
+            }
         }
     }
 
@@ -1409,12 +1428,11 @@ impl DebugSession {
         let flags = process_event.as_event().flags();
         if flags & SBProcessEvent::BroadcastBitStateChanged != 0 {
             match process_event.process_state() {
-                ProcessState::Running => self.send_event(EventBody::continued(ContinuedEventBody {
-                    all_threads_continued: Some(true),
-                    thread_id: 0,
-                })),
-                ProcessState::Stopped if !process_event.restarted() => self.notify_process_stopped(&process_event),
-                ProcessState::Crashed => self.notify_process_stopped(&process_event),
+                ProcessState::Running | ProcessState::Stepping => self.notify_process_running(),
+                ProcessState::Stopped => if !process_event.restarted() {
+                    self.notify_process_stopped()
+                },
+                ProcessState::Crashed | ProcessState::Suspended => self.notify_process_stopped(),
                 ProcessState::Exited => {
                     let exit_code = self.process.exit_status() as i64;
                     self.send_event(EventBody::exited(ExitedEventBody { exit_code }));
@@ -1426,7 +1444,14 @@ impl DebugSession {
         }
     }
 
-    fn notify_process_stopped(&mut self, event: &SBProcessEvent) {
+    fn notify_process_running(&mut self) {
+        self.send_event(EventBody::continued(ContinuedEventBody {
+            all_threads_continued: Some(true),
+            thread_id: 0,
+        }))
+    }
+
+    fn notify_process_stopped(&mut self) {
         self.update_threads();
         // Find thread that has caused this stop
         let mut stopped_thread = None;
