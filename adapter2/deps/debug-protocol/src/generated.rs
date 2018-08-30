@@ -1991,9 +1991,8 @@ pub struct SetVariableResponseBody {
         pub value: String,
         /// If variablesReference is > 0, the new value is structured and its children can be retrieved
         /// by passing variablesReference to the VariablesRequest.
-        #[serde(skip_serializing_if = "Option::is_none")]
         #[serde(rename = "variablesReference")]
-        pub variables_reference: Option<f64>,
+        pub variables_reference: i64,
 }
 #[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
 pub struct SetVariableResponse {

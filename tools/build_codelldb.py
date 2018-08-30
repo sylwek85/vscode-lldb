@@ -14,6 +14,7 @@ def main():
     makedirs(target_dir)
 
     shutil.copy2(workspace_folder + '/adapter2/codelldb.py', target_dir)
+    shutil.copy2(workspace_folder + '/adapter2/rust.py', target_dir)
     shutil.copy2(workspace_folder + '/adapter2/value.py', target_dir)
     if sys.platform.startswith('linux'):
         shutil.copy2(build_dir + '/codelldb', target_dir)

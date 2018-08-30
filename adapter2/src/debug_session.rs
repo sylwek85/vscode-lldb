@@ -70,7 +70,7 @@ enum Container {
     Statics(SBFrame),
     Globals(SBFrame),
     Registers(SBFrame),
-    Container(SBValue),
+    SBValue(SBValue),
 }
 
 enum ExprType {
@@ -214,6 +214,9 @@ impl DebugSession {
                 RequestArguments::evaluate(args) =>
                     self.handle_evaluate(args)
                         .map(|r| ResponseBody::evaluate(r)),
+                RequestArguments::setVariable(args) =>
+                    self.handle_set_variable(args)
+                        .map(|r| ResponseBody::setVariable(r)),
                 RequestArguments::pause(args) =>
                     self.handle_pause(args)
                         .map(|_| ResponseBody::pause),
@@ -311,8 +314,9 @@ impl DebugSession {
     fn handle_initialize(&mut self, args: InitializeRequestArguments) -> Result<Capabilities, Error> {
         self.debugger = Initialized(SBDebugger::create(false));
         self.debugger.set_async(true);
-        python::initialize(&self.debugger.command_interpreter());
-        let mut command_result = SBCommandReturnObject::new();
+
+        let interpreter = self.debugger.command_interpreter();
+        python::initialize(&interpreter);
 
         let caps = Capabilities {
             supports_configuration_done_request: true,
@@ -380,6 +384,8 @@ impl DebugSession {
                 if let Some(le) = bp_loc.address().line_entry() {
                     if normalize_path(le.file_spec().path()) == file_path_norm {
                         resolved_line = Some(le.line());
+                    } else {
+                        bp_loc.set_enabled(false);
                     }
                 }
             }
@@ -512,6 +518,7 @@ impl DebugSession {
 
         let self_ref = self.self_ref.clone();
         bp.set_callback(move |process, thread, location| {
+            debug!("Callback for breakpoint location {:?}", location);
             if let Some(self_ref) = self_ref.upgrade() {
                 let session = self_ref.lock().unwrap();
                 let breakpoints = session.breakpoints.borrow();
@@ -714,6 +721,7 @@ impl DebugSession {
         let mut command_result = SBCommandReturnObject::new();
         for command in commands {
             interpreter.handle_command(&command, &mut command_result, false);
+            debug!("{:?}", command_result);
         }
     }
 
@@ -907,7 +915,7 @@ impl DebugSession {
                     let mut vars_iter = list.iter();
                     self.convert_scope_values(&mut vars_iter, "", Some(container_handle))
                 }
-                Container::Container(var) => {
+                Container::SBValue(var) => {
                     let container_eval_name = self.compose_container_eval_name(container_handle);
                     let var = var.clone();
                     let mut vars_iter = var.children();
@@ -916,9 +924,9 @@ impl DebugSession {
                     // If synthetic, add [raw] view.
                     if var.is_synthetic() {
                         let raw_var = var.non_synthetic_value();
-                        let handle =
-                            self.var_refs
-                                .create(Some(container_handle), "[raw]", Container::Container(raw_var));
+                        let handle = self
+                            .var_refs
+                            .create(Some(container_handle), "[raw]", Container::SBValue(raw_var));
                         let raw = Variable {
                             name: "[raw]".to_owned(),
                             value: var.type_name().unwrap_or_default().to_owned(),
@@ -946,7 +954,7 @@ impl DebugSession {
         while let Some(h) = container_handle {
             let (parent_handle, key, value) = self.var_refs.get_full_info(h).unwrap();
             match value {
-                Container::Container(var) if var.value_type() != ValueType::RegisterSet => {
+                Container::SBValue(var) if var.value_type() != ValueType::RegisterSet => {
                     eval_name = compose_eval_name(key, eval_name);
                     container_handle = parent_handle;
                 }
@@ -1003,7 +1011,7 @@ impl DebugSession {
         if var.num_children() > 0 || var.is_synthetic() {
             Some(
                 self.var_refs
-                    .create(parent_handle, key, Container::Container(var.clone())),
+                    .create(parent_handle, key, Container::SBValue(var.clone())),
             )
         } else {
             None
@@ -1146,7 +1154,7 @@ impl DebugSession {
                 };
                 return Ok(response);
             } else {
-                expression = &expression[1..]; // drop '?'
+                expression = &expression[1..]; // drop leading '?'
             }
         }
         // Expression
@@ -1251,6 +1259,39 @@ impl DebugSession {
                     SBExecutionContext::from_target(&target)
                 }
             },
+        }
+    }
+
+    fn handle_set_variable(&mut self, args: SetVariableArguments) -> Result<SetVariableResponseBody, Error> {
+        let container_handle = handles::from_i64(args.variables_reference).unwrap();
+        let container = self
+            .var_refs
+            .get(container_handle)
+            .expect("Invalid variables reference");
+        let child = match container {
+            Container::SBValue(container) => container.child_member_with_name(&args.name),
+            Container::Locals(frame) | Container::Globals(frame) | Container::Statics(frame) => {
+                frame.find_variable(&args.name)
+            }
+            _ => None,
+        };
+        if let Some(child) = child {
+            match child.set_value(&args.value) {
+                Ok(()) => {
+                    let handle = self.get_var_handle(Some(container_handle), child.name().unwrap_or_default(), &child);
+                    let response = SetVariableResponseBody {
+                        value: self.get_var_value_str(&child, self.global_format, handle.is_some()),
+                        type_: child.type_name().map(|s| s.to_owned()),
+                        variables_reference: handles::to_i64(handle),
+                        named_variables: None,
+                        indexed_variables: None,
+                    };
+                    Ok(response)
+                }
+                Err(err) => Err(Error::UserError(err.to_string())),
+            }
+        } else {
+            Err(Error::UserError("Could not set variable value.".into()))
         }
     }
 

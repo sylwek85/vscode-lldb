@@ -18,6 +18,13 @@ pub fn initialize(interpreter: &SBCommandInterpreter) -> Result<(), Error> {
     let command = format!("command script import '{}'", init_script.to_str()?);
     interpreter.handle_command(&command, &mut command_result, false);
     info!("{:?}", command_result);
+
+    let mut rust_formatters = init_script.clone();
+    rust_formatters.set_file_name("rust.py");
+    let command = format!("command script import '{}'", rust_formatters.to_str()?);
+    interpreter.handle_command(&command, &mut command_result, false);
+    info!("{:?}", command_result);
+
     Ok(())
 }
 
@@ -35,31 +42,37 @@ type EvalResult = Result<PythonValue, String>;
 pub fn evaluate(
     interpreter: &SBCommandInterpreter, script: &str, simple_expr: bool, context: &SBExecutionContext,
 ) -> EvalResult {
-    extern "C" fn callback(ty: c_int, data1:usize, data2: usize, result_ptr: *mut EvalResult) {
+    extern "C" fn callback(ty: c_int, pdata: *const c_void, idata: usize, result_ptr: *mut EvalResult) {
         unsafe {
             *result_ptr = match ty {
-                0 => { // Error
-                    let bytes = slice::from_raw_parts(data1 as *const u8, data2);
+                0 => {
+                    // Error
+                    let bytes = slice::from_raw_parts(pdata as *const u8, idata);
                     Err(String::from_utf8_lossy(bytes).into_owned())
                 }
-                1 => { // SBValue
-                    let sbvalue = data1 as *const SBValue;
+                1 => {
+                    // SBValue
+                    let sbvalue = pdata as *const SBValue;
                     Ok(PythonValue::SBValue((*sbvalue).clone()))
                 }
-                2 => { // bool
-                    let value = (data1 as i64) != 0;
+                2 => {
+                    // bool
+                    let value = (idata as i64) != 0;
                     Ok(PythonValue::Bool(value))
                 }
-                3 => { // int
-                    let value = data1 as i64;
+                3 => {
+                    // int
+                    let value = idata as i64;
                     Ok(PythonValue::Int(value))
                 }
-                4 => { // string
-                    let bytes = slice::from_raw_parts(data1 as *const u8, data2);
+                4 => {
+                    // string
+                    let bytes = slice::from_raw_parts(pdata as *const u8, idata);
                     Ok(PythonValue::String(String::from_utf8_lossy(bytes).into_owned()))
                 }
-                5 => { // str(object)
-                    let bytes = slice::from_raw_parts(data1 as *const u8, data2);
+                5 => {
+                    // str(object)
+                    let bytes = slice::from_raw_parts(pdata as *const u8, idata);
                     Ok(PythonValue::Object(String::from_utf8_lossy(bytes).into_owned()))
                 }
                 _ => unreachable!(),

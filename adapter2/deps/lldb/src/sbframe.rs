@@ -63,6 +63,18 @@ impl SBFrame {
             return self->GetVariables(arguments, locals, statics, in_scope_only, (lldb::DynamicValueType)use_dynamic);
         })
     }
+    pub fn find_variable(&self, name: &str) -> Option<SBValue> {
+        let var = with_cstr(name, |name| {
+            cpp!(unsafe [self as "SBFrame*", name as "const char*"] -> SBValue as "SBValue" {
+                return self->FindVariable(name);
+            })
+        });
+        if var.is_valid() {
+            Some(var)
+        } else {
+            None
+        }
+    }
     pub fn evaluate_expression(&self, expr: &str) -> SBValue {
         with_cstr(expr, |expr| {
             cpp!(unsafe [self as "SBFrame*", expr as "const char*"] -> SBValue as "SBValue" {

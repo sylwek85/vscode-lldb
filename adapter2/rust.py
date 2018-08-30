@@ -27,7 +27,7 @@ def __lldb_init_module(debugger, internal_dict):
     #rust_category.AddLanguage(lldb.eLanguageTypeRust)
     rust_category.SetEnabled(True)
 
-    attach_summary_to_type(get_array_summary, r'^.*\[[0-9]+\]$', True)
+    #attach_summary_to_type(get_array_summary, r'^.*\[[0-9]+\]$', True)
 
     attach_synthetic_to_type(StrSliceSynthProvider, '&str')
 

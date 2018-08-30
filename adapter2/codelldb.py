@@ -12,7 +12,7 @@ log = logging.getLogger('codelldb')
 
 #============================================================================================
 
-RESULT_CALLBACK = CFUNCTYPE(None, c_int, c_size_t, c_size_t, c_void_p)
+RESULT_CALLBACK = CFUNCTYPE(None, c_int, c_void_p, c_size_t, c_void_p)
 
 def evaluate(script, simple_expr, callback_addr, baton):
     callback = RESULT_CALLBACK(callback_addr)
@@ -33,15 +33,16 @@ def evaluate(script, simple_expr, callback_addr, baton):
         if isinstance(result, lldb.SBValue):
             callback(1, long(result.this), 0, baton)
         elif isinstance(result, bool):
-            callback(2, long(result), 0, baton)
+            callback(2, 0, long(result), baton)
         elif isinstance(result, int):
-            callback(3, long(result), 0, baton)
+            callback(3, 0, long(result), baton)
         elif isinstance(result, str):
             callback(4, s, len(s), baton)
         else:
             s = str(result)
             callback(5, s, len(s), baton)
     except Exception as e:
+        log.error('Evaluation error "%s": %s', script, e)
         s = traceback.format_exc()
         callback(0, s, len(s), baton)
 

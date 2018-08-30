@@ -112,6 +112,19 @@ impl SBValue {
             Err(error)
         }
     }
+    pub fn set_value(&self, value_str: &str) -> Result<(), SBError> {
+        let mut error = SBError::new();
+        let result = with_cstr(value_str, |value_str| {
+            cpp!(unsafe [self as "SBValue*", value_str as "const char*", mut error as "SBError"] -> bool as "bool" {
+                return self->SetValueFromCString(value_str, error);
+            })
+        });
+        if result {
+            Ok(())
+        } else {
+            Err(error)
+        }
+    }
     pub fn dereference(&self) -> SBValue {
         cpp!(unsafe [self as "SBValue*"] -> SBValue as "SBValue" {
             return self->Dereference();
@@ -152,6 +165,33 @@ impl SBValue {
                 Ok(s) => Some(s.to_owned()),
                 Err(_) => None,
             }
+        } else {
+            None
+        }
+    }
+    // Matches child members of this object and child members of any base classes.
+    pub fn child_member_with_name(&self, name: &str) -> Option<SBValue> {
+        let child = with_cstr(name, |name| {
+            cpp!(unsafe [self as "SBValue*", name as "const char*"] ->  SBValue as "SBValue"  {
+                return self->GetChildMemberWithName(name);
+            })
+        });
+        if child.is_valid() {
+            Some(child)
+        } else {
+            None
+        }
+    }
+    // Matches children of this object only and will match base classes and
+    // member names if this is a clang typed object.
+    pub fn index_of_child_with_name(&self, name: &str) -> Option<u32> {
+        let index = with_cstr(name, |name| {
+            cpp!(unsafe [self as "SBValue*", name as "const char*"] ->  u32 as "uint32_t"  {
+                return self->GetIndexOfChildWithName(name);
+            })
+        });
+        if index != std::u32::MAX {
+            Some(index)
         } else {
             None
         }
