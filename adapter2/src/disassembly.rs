@@ -28,8 +28,7 @@ impl AddressSpace {
         self.by_handle.get(&handle).map(|dasm| dasm.clone())
     }
 
-    pub fn get_by_address(&self, addr: &SBAddress) -> Option<Rc<DisassembledRange>> {
-        let load_addr = addr.load_address(&self.target);
+    pub fn get_by_address(&self, load_addr: u64) -> Option<Rc<DisassembledRange>> {
         let idx = self
             .by_address
             .upper_bound_by_key(&load_addr, |dasm| dasm.start_load_addr);

@@ -334,6 +334,10 @@ impl DebugSession {
     }
 
     fn handle_set_breakpoints(&mut self, args: SetBreakpointsArguments) -> Result<SetBreakpointsResponseBody, Error> {
+        // let dasm = args.source.source_reference //.
+        //     .and_then(|source_ref| self.disassembly.get_by_handle(handles::from_i64(source_ref)?))
+        //     .or_else(|| args.source.adapter_data.and_then(|adapter_data| unimplemented!()));
+
         let file_id = FileId::Filename(args.source.path.as_ref()?.clone());
 
         let requested_bps = args.breakpoints.as_ref().unwrap();
@@ -420,6 +424,62 @@ impl DebugSession {
             breakpoints_resp.push(bp_resp);
         }
         breakpoints_resp
+    }
+
+    fn make_bp_resp(&self, bp_info: &BreakpointInfo) -> Breakpoint {
+        match bp_info.kind {
+            BreakpointKind::Source {
+                file_path,
+                resolved_line,
+            } => {
+                let file_name = Path::new(&file_path)
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+
+                Breakpoint {
+                    id: Some(bp_info.id as i64),
+                    verified: resolved_line.is_some(),
+                    line: resolved_line.map(|l| l as i64),
+                    source: Some(Source {
+                        name: Some(file_name),
+                        path: Some(file_path.to_owned()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }
+            }
+            BreakpointKind::Assembly { address, adapter_data } => {
+                let mut dasm = self.disassembly.get_by_address(address);
+                if dasm.is_none() {
+                    let start = SBAddress::from_load_address(adapter_data.start, &self.target);
+                    let end = SBAddress::from_load_address(adapter_data.end, &self.target);
+                    dasm = Some(self.disassembly.create_from_range(&start, &end));
+                }
+                if let Some(dasm) = dasm {
+                    Breakpoint {
+                        id: Some(bp_info.id as i64),
+                        verified: true,
+                        line: Some(dasm.line_num_by_address(address) as i64),
+                        source: Some(Source {
+                            name: Some(dasm.source_name().into()),
+                            source_reference: Some(handles::to_i64(Some(dasm.handle()))),
+                            adapter_data: Some(bp_info.adapter_data),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }
+                } else {
+                    Breakpoint {
+                        id: Some(bp_info.id as i64),
+                        verified: false,
+                        ..Default::default()
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
     }
 
     fn handle_set_function_breakpoints(
@@ -872,7 +932,7 @@ impl DebugSession {
     }
 
     fn handle_variables(&mut self, args: VariablesArguments) -> Result<VariablesResponseBody, Error> {
-        let container_handle = handles::from_i64(args.variables_reference).unwrap();
+        let container_handle = handles::from_i64(args.variables_reference)?;
 
         if let Some(container) = self.var_refs.get(container_handle) {
             let variables = match container {
@@ -1127,14 +1187,16 @@ impl DebugSession {
     }
 
     fn handle_evaluate(&mut self, args: EvaluateArguments) -> Result<EvaluateResponseBody, Error> {
-        let frame: Option<&SBFrame> = args.frame_id.map(|id| {
-            let handle = handles::from_i64(id).unwrap();
-            if let Some(Container::StackFrame(ref frame)) = self.var_refs.get(handle) {
-                frame
-            } else {
-                panic!("Invalid frameId");
-            }
-        });
+        let frame: Option<&SBFrame> = args
+            .frame_id
+            .map(|id| {
+                let handle = handles::from_i64(id)?;
+                if let Some(Container::StackFrame(ref frame)) = self.var_refs.get(handle) {
+                    Ok(frame)
+                } else {
+                    Err(Error::Internal("Invalid frameId".into()))
+                }
+            })?.ok();
 
         let context = args.context.as_ref().map(|s| s.as_ref());
         let mut expression: &str = &args.expression;
@@ -1263,7 +1325,7 @@ impl DebugSession {
     }
 
     fn handle_set_variable(&mut self, args: SetVariableArguments) -> Result<SetVariableResponseBody, Error> {
-        let container_handle = handles::from_i64(args.variables_reference).unwrap();
+        let container_handle = handles::from_i64(args.variables_reference)?;
         let container = self
             .var_refs
             .get(container_handle)
@@ -1362,7 +1424,7 @@ impl DebugSession {
     }
 
     fn handle_source(&mut self, args: SourceArguments) -> Result<SourceResponseBody, Error> {
-        let handle = handles::from_i64(args.source_reference).unwrap();
+        let handle = handles::from_i64(args.source_reference)?;
         let dasm = self.disassembly.get_by_handle(handle).unwrap();
         Ok(SourceResponseBody {
             content: dasm.get_source_text(),
@@ -1499,7 +1561,7 @@ impl DebugSession {
         // Check the currently selected thread first
         let selected_thread = self.process.selected_thread();
         stopped_thread = match selected_thread.stop_reason() {
-            StopReason::Invalid | // br
+            StopReason::Invalid | //.
             StopReason::None => None,
             _ => Some(selected_thread),
         };
@@ -1507,7 +1569,7 @@ impl DebugSession {
         if stopped_thread.is_none() {
             for thread in self.process.threads() {
                 match thread.stop_reason() {
-                    StopReason::Invalid | // br
+                    StopReason::Invalid | //.
                     StopReason::None => (),
                     _ => {
                         self.process.set_selected_thread(&thread);
@@ -1523,7 +1585,7 @@ impl DebugSession {
                 let stop_reason = stopped_thread.stop_reason();
                 match stop_reason {
                     StopReason::Breakpoint => ("breakpoint", None),
-                    StopReason::Trace | // br
+                    StopReason::Trace | //.
                     StopReason::PlanComplete => ("step", None),
                     _ => {
                         // Print stop details for these types
@@ -1588,8 +1650,35 @@ impl DebugSession {
     fn handle_breakpoint_event(&mut self, event: &SBBreakpointEvent) {
         let bp = event.breakpoint();
         let event_type = event.event_type();
-        if event_type.intersects(BreakpointEventType::Removed) {
+        let bp_id = bp.id();
+
+        if event_type.intersects(BreakpointEventType::Added) {
+            // let mut breakpoints = self.breakpoints.borrow_mut();
+            // let bp_info = breakpoints.entry(&bp_id).or_insert_with(|| {
+
+            // });)
+
+            // match entry {
+            //     Entry::Occupied(bp_info) => bp_info,
+            //     Entry::Vacant => entry.in
+            // }
+
+            self.send_event(EventBody::breakpoint(BreakpointEventBody {
+                reason: "new".into(),
+                breakpoint: Breakpoint {
+                    id: Some(bp_id as i64),
+                    ..Default::default()
+                },
+            }));
+        } else if event_type.intersects(BreakpointEventType::Removed) {
             bp.clear_callback();
+            self.send_event(EventBody::breakpoint(BreakpointEventBody {
+                reason: "removed".into(),
+                breakpoint: Breakpoint {
+                    id: Some(bp_id as i64),
+                    ..Default::default()
+                },
+            }));
         }
     }
 

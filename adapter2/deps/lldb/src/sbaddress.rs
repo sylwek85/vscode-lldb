@@ -5,6 +5,11 @@ cpp_class!(pub unsafe struct SBAddress as "SBAddress");
 unsafe impl Send for SBAddress {}
 
 impl SBAddress {
+    pub fn from_load_address(addr: u64, target: &SBTarget) -> Self {
+        cpp!(unsafe [addr as "addr_t", target as "SBTarget*"] -> SBAddress as "SBAddress" {
+            return SBAddress(addr, *target);
+        })
+    }
     pub fn is_valid(&self) -> bool {
         cpp!(unsafe [self as "SBAddress*"] -> bool as "bool" {
             return self->IsValid();

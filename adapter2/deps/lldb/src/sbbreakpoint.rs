@@ -8,7 +8,8 @@ cpp_class!(pub unsafe struct SBBreakpoint as "SBBreakpoint");
 unsafe impl Send for SBBreakpoint {}
 
 lazy_static! {
-    static ref CALLBACKS: Mutex<HashMap<BreakpointID, Box<FnMut(&SBProcess, &SBThread, &SBBreakpointLocation) -> bool + Send>>> = { Mutex::new(HashMap::new()) };
+    static ref CALLBACKS: Mutex<HashMap<BreakpointID, Box<FnMut(&SBProcess, &SBThread, &SBBreakpointLocation) -> bool + Send>>> =
+        { Mutex::new(HashMap::new()) };
 }
 
 impl SBBreakpoint {
@@ -101,9 +102,10 @@ impl SBBreakpoint {
 
 impl fmt::Debug for SBBreakpoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let with_locations = f.alternate();
         debug_descr(f, |descr| {
-            cpp!(unsafe [self as "SBBreakpoint*", descr as "SBStream*"] -> bool as "bool" {
-                return self->GetDescription(*descr);
+            cpp!(unsafe [self as "SBBreakpoint*", with_locations as "bool", descr as "SBStream*"] -> bool as "bool" {
+                return self->GetDescription(*descr, with_locations);
             })
         })
     }

@@ -4,6 +4,8 @@ use std::mem;
 use std::num::NonZeroU32;
 use std::rc::Rc;
 
+use crate::error::Error;
+
 pub type Handle = NonZeroU32;
 
 pub fn to_i64(h: Option<Handle>) -> i64 {
@@ -13,8 +15,11 @@ pub fn to_i64(h: Option<Handle>) -> i64 {
     }
 }
 
-pub fn from_i64(v: i64) -> Option<Handle> {
-    Handle::new(v as u32)
+pub fn from_i64(v: i64) -> Result<Handle, Error> {
+    match Handle::new(v as u32) {
+        Some(h) => Ok(h),
+        None => Err(Error::Internal("Expected non-zero handle value".into()))
+    }
 }
 
 pub struct HandleTree<Value> {
