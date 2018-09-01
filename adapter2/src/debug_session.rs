@@ -438,10 +438,6 @@ impl DebugSession {
         let mut response_bps = vec![];
         for req in requested_bps {
             let address = dasm.address_by_line_num(req.line as u32);
-            let adapter_data = AdapterData {
-                start: 0,
-                end: 0
-            };
 
             // Find existing breakpoint or create a new one
             let mut bp = match existing_bps
@@ -449,9 +445,7 @@ impl DebugSession {
                 .and_then(|bp_id| self.target.find_breakpoint_by_id(*bp_id))
             {
                 Some(bp) => bp,
-                None => {
-                    self.target.breakpoint_create_by_address(&address)
-                }
+                None => self.target.breakpoint_create_by_address(&address),
             };
 
             let bp_info = BreakpointInfo {
@@ -471,6 +465,33 @@ impl DebugSession {
             self.breakpoints.borrow_mut().insert(bp_info.id, bp_info);
         }
         Ok(response_bps)
+    }
+
+    fn set_new_dasm_breakpoints(
+        &mut self, requested_bps: &[SourceBreakpoint], adapter_data: &AdapterData,
+    ) -> Result<Vec<BreakpointInfo>, Error> {
+        let mut result = vec![];
+        for req in requested_bps {
+            let address = adapter_data.start + adapter_data.line_offsets[req.line as u32];
+            let dasm = self
+                .disassembly
+                .get_by_address(address)
+                .unwrap_or_else(|| self.disassembly.create(address));
+            let bp = self.target.breakpoint_create_by_absolute_address(&address);
+            let bp_info = BreakpointInfo{
+                id: bp.id(),
+                kind: BreakpointKind::Assembly {
+                    address: address,
+                    range: dasm,
+                },
+                condition: req.condition.clone(),
+                log_message: req.log_message.clone(),
+                ignore_count: 0,
+            };
+            self.init_bp_actions(&mut bp, &bp_info);
+            result.push(bp_info);
+        }
+        Ok(result)
     }
 
     fn make_bp_response(&mut self, bp_info: &BreakpointInfo) -> Breakpoint {

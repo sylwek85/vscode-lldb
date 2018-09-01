@@ -28,7 +28,7 @@ impl AddressSpace {
         self.by_handle.get(&handle).map(|dasm| dasm.clone())
     }
 
-    pub fn get_by_address(&self, load_addr: u64) -> Option<Rc<DisassembledRange>> {
+    pub fn get_by_address(&self, load_addr: Address) -> Option<Rc<DisassembledRange>> {
         let idx = self
             .by_address
             .upper_bound_by_key(&load_addr, |dasm| dasm.start_load_addr);
@@ -44,8 +44,8 @@ impl AddressSpace {
         }
     }
 
-    pub fn create_from_address(&mut self, addr: &SBAddress) -> Rc<DisassembledRange> {
-        const NO_SYMBOL_INSTRUCTIONS: u32 = 32;
+    pub fn create_from_address(&mut self, load_addr: Address) -> Rc<DisassembledRange> {
+        let addr = SBAddress::from_load_address(load_addr, &self.target);
 
         let start_addr;
         let end_addr;
@@ -57,6 +57,8 @@ impl AddressSpace {
                 instructions = symbol.instructions(&self.target);
             }
             None => {
+                // How many instructions to put into DisassembledRange if the address is not in scope of any symbol.
+                const NO_SYMBOL_INSTRUCTIONS: u32 = 32;
                 start_addr = addr.clone();
                 instructions = self.target.read_instructions(&start_addr, NO_SYMBOL_INSTRUCTIONS + 1);
                 end_addr = if instructions.len() > 0 {
