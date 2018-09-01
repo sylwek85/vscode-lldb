@@ -70,10 +70,6 @@ impl AddressSpace {
         self.add(start_addr, end_addr, instructions)
     }
 
-    pub fn create_from_range(&mut self, start: &SBAddress, end: &SBAddress) -> Rc<DisassembledRange> {
-        unimplemented!()
-    }
-
     fn add(
         &mut self, start_addr: SBAddress, end_addr: SBAddress, instructions: SBInstructionList,
     ) -> Rc<DisassembledRange> {

@@ -49,8 +49,8 @@ enum BreakpointKind {
     },
     Function,
     Assembly {
-        address: u64,
-        adapter_data: Vec<u8>,
+        address: SBAddress,
+        adapter_data: AdapterData,
     },
     Exception,
 }
@@ -334,11 +334,27 @@ impl DebugSession {
     }
 
     fn handle_set_breakpoints(&mut self, args: SetBreakpointsArguments) -> Result<SetBreakpointsResponseBody, Error> {
-        // let dasm = args.source.source_reference //.
-        //     .and_then(|source_ref| self.disassembly.get_by_handle(handles::from_i64(source_ref)?))
-        //     .or_else(|| args.source.adapter_data.and_then(|adapter_data| unimplemented!()));
-
-        let file_id = FileId::Filename(args.source.path.as_ref()?.clone());
+        // Decide whether this is a real source file or a disassembled range:
+        // if it has a `source_reference` attribute, it's a disassembled range - we never generate references for real sources;
+        // if it has an `adapter_data` attribute, it's a disassembled range from a previous debug session - we'll need to create
+        //      a corresponding DisassembledRange from information stored in `adapter_data` and return a reference to it;
+        // otherwise, it's a real source file (and we expect it to have a valid `path` attribute).
+        let mut dasm = None;
+        if let Some(source_ref) = args.source.source_reference {
+            dasm = self.disassembly.get_by_handle(handles::from_i64(source_ref)?);
+        }
+        if dasm.is_none() {
+            if let Some(adapter_data) = args.source.adapter_data {
+                let adapter_data = serde_json::from_value::<AdapterData>(adapter_data)?;
+                let start = SBAddress::from_load_address(adapter_data.start, &self.target);
+                let end = SBAddress::from_load_address(adapter_data.end, &self.target);
+                dasm = Some(self.disassembly.create_from_range(&start, &end));
+            }
+        }
+        let file_id = match dasm {
+            Some(ref dasm) => FileId::Disassembly(dasm.handle()),
+            None => FileId::Filename(args.source.path.as_ref()?.clone()),
+        };
 
         let requested_bps = args.breakpoints.as_ref().unwrap();
         let mut old_existing_bps = self.source_breakpoints.remove(&file_id).unwrap_or_default();
@@ -353,23 +369,25 @@ impl DebugSession {
             }
         }
 
-        let breakpoints = self.set_source_breakpoints(
-            &mut existing_bps,
-            &args.breakpoints.as_ref()?,
-            args.source.path.as_ref()?,
-        );
-
+        let breakpoints = match &file_id {
+            FileId::Filename(path) => self.set_source_breakpoints(
+                &mut existing_bps,
+                &args.breakpoints.as_ref()?,
+                args.source.path.as_ref()?,
+            )?,
+            FileId::Disassembly(source_ref) => {
+                self.set_dasm_breakpoints(&mut existing_bps, &args.breakpoints.as_ref()?, &*dasm?)?
+            }
+        };
         self.source_breakpoints.insert(file_id, existing_bps);
 
-        let response = SetBreakpointsResponseBody { breakpoints };
-        Ok(response)
+        Ok(SetBreakpointsResponseBody { breakpoints })
     }
 
     fn set_source_breakpoints(
         &mut self, existing_bps: &mut HashMap<i64, BreakpointID>, requested_bps: &[SourceBreakpoint], file_path: &str,
-    ) -> Vec<Breakpoint> {
-        let mut breakpoints_resp = vec![];
-        let mut breakpoints = self.breakpoints.borrow_mut();
+    ) -> Result<Vec<Breakpoint>, Error> {
+        let mut response_bps = vec![];
         for req in requested_bps {
             let file_path_norm = normalize_path(file_path);
             let file_name = file_path_norm.file_name().unwrap().to_str().unwrap();
@@ -394,7 +412,7 @@ impl DebugSession {
                 }
             }
 
-            let mut bp_info = BreakpointInfo {
+            let bp_info = BreakpointInfo {
                 id: bp.id(),
                 kind: BreakpointKind::Source {
                     file_path: file_path.to_owned(),
@@ -404,30 +422,59 @@ impl DebugSession {
                 log_message: req.log_message.clone(),
                 ignore_count: 0,
             };
-            let bp_info = breakpoints.entry(bp_info.id).or_insert(bp_info);
+            self.init_bp_actions(&mut bp, &bp_info);
 
             existing_bps.insert(req.line, bp_info.id);
-
-            self.init_bp_actions(&mut bp, bp_info);
-
-            let mut bp_resp = Breakpoint {
-                id: Some(bp_info.id as i64),
-                verified: resolved_line.is_some(),
-                line: resolved_line.map(|l| l as i64),
-                source: Some(Source {
-                    name: Some(file_name.to_owned()),
-                    path: Some(file_path.to_owned()),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            };
-            breakpoints_resp.push(bp_resp);
+            response_bps.push(self.make_bp_response(&bp_info));
+            self.breakpoints.borrow_mut().insert(bp_info.id, bp_info);
         }
-        breakpoints_resp
+        Ok(response_bps)
     }
 
-    fn make_bp_resp(&self, bp_info: &BreakpointInfo) -> Breakpoint {
-        match bp_info.kind {
+    fn set_dasm_breakpoints(
+        &mut self, existing_bps: &mut HashMap<i64, BreakpointID>, requested_bps: &[SourceBreakpoint],
+        dasm: &disassembly::DisassembledRange,
+    ) -> Result<Vec<Breakpoint>, Error> {
+        let mut response_bps = vec![];
+        for req in requested_bps {
+            let address = dasm.address_by_line_num(req.line as u32);
+            let adapter_data = AdapterData {
+                start: 0,
+                end: 0
+            };
+
+            // Find existing breakpoint or create a new one
+            let mut bp = match existing_bps
+                .get(&req.line)
+                .and_then(|bp_id| self.target.find_breakpoint_by_id(*bp_id))
+            {
+                Some(bp) => bp,
+                None => {
+                    self.target.breakpoint_create_by_address(&address)
+                }
+            };
+
+            let bp_info = BreakpointInfo {
+                id: bp.id(),
+                kind: BreakpointKind::Assembly {
+                    address: address,
+                    adapter_data: adapter_data,
+                },
+                condition: req.condition.clone(),
+                log_message: req.log_message.clone(),
+                ignore_count: 0,
+            };
+            self.init_bp_actions(&mut bp, &bp_info);
+
+            existing_bps.insert(req.line, bp_info.id);
+            response_bps.push(self.make_bp_response(&bp_info));
+            self.breakpoints.borrow_mut().insert(bp_info.id, bp_info);
+        }
+        Ok(response_bps)
+    }
+
+    fn make_bp_response(&mut self, bp_info: &BreakpointInfo) -> Breakpoint {
+        match &bp_info.kind {
             BreakpointKind::Source {
                 file_path,
                 resolved_line,
@@ -451,7 +498,7 @@ impl DebugSession {
                 }
             }
             BreakpointKind::Assembly { address, adapter_data } => {
-                let mut dasm = self.disassembly.get_by_address(address);
+                let mut dasm = self.disassembly.get_by_address(&address);
                 if dasm.is_none() {
                     let start = SBAddress::from_load_address(adapter_data.start, &self.target);
                     let end = SBAddress::from_load_address(adapter_data.end, &self.target);
@@ -461,11 +508,11 @@ impl DebugSession {
                     Breakpoint {
                         id: Some(bp_info.id as i64),
                         verified: true,
-                        line: Some(dasm.line_num_by_address(address) as i64),
+                        line: Some(dasm.line_num_by_address(&address) as i64),
                         source: Some(Source {
                             name: Some(dasm.source_name().into()),
                             source_reference: Some(handles::to_i64(Some(dasm.handle()))),
-                            adapter_data: Some(bp_info.adapter_data),
+                            adapter_data: Some(serde_json::to_value(&adapter_data).unwrap()),
                             ..Default::default()
                         }),
                         ..Default::default()
@@ -478,7 +525,19 @@ impl DebugSession {
                     }
                 }
             }
-            _ => unreachable!(),
+            BreakpointKind::Function => {
+                let verified = self
+                    .target
+                    .find_breakpoint_by_id(bp_info.id)
+                    .map(|bp| bp.num_resolved_locations() > 0)
+                    .unwrap_or(false);
+                Breakpoint {
+                    id: Some(bp_info.id as i64),
+                    verified: verified,
+                    ..Default::default()
+                }
+            }
+            BreakpointKind::Exception => unreachable!(),
         }
     }
 
@@ -855,7 +914,7 @@ impl DebugSession {
                         self.disassembly.create_from_address(&pc_addr)
                     }
                 };
-                stack_frame.line = dasm.line_num_by_address(pc_addr.load_address(&self.target)) as i64;
+                stack_frame.line = dasm.line_num_by_address(&pc_addr) as i64;
                 stack_frame.column = 0;
                 stack_frame.source = Some(Source {
                     name: Some(dasm.source_name().to_owned()),

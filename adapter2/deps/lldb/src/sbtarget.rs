@@ -63,6 +63,16 @@ impl SBTarget {
             })
         })
     }
+    pub fn breakpoint_create_by_address(&self, address: &SBAddress) -> SBBreakpoint {
+        cpp!(unsafe [self as "SBTarget*", address as "SBAddress*"] -> SBBreakpoint as "SBBreakpoint" {
+            return self->BreakpointCreateBySBAddress(*address);
+        })
+    }
+    pub fn breakpoint_create_by_absolute_address(&self, address: Address) -> SBBreakpoint {
+        cpp!(unsafe [self as "SBTarget*", address as "addr_t"] -> SBBreakpoint as "SBBreakpoint" {
+            return self->BreakpointCreateByAddress(address);
+        })
+    }
     pub fn breakpoint_delete(&self, id: BreakpointID) -> bool {
         cpp!(unsafe [self as "SBTarget*", id as "break_id_t"] -> bool as "bool" {
             return self->BreakpointDelete(id);

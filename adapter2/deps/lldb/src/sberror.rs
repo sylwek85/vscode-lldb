@@ -50,4 +50,8 @@ impl fmt::Display for SBError {
     }
 }
 
-// TODO: impl std::error::Error?
+impl std::error::Error for SBError {
+    fn description(&self) -> &str {
+        self.message()
+    }
+}
