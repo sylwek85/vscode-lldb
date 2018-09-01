@@ -103,6 +103,15 @@ impl AddressSpace {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AdapterData {
+    pub start: Address,
+    pub end: Address,
+    pub line_offsets: Vec<u32>,
+}
+
+#[derive(Debug)]
 pub struct DisassembledRange {
     handle: Handle,
     target: SBTarget,
@@ -131,6 +140,18 @@ impl DisassembledRange {
 
     pub fn address_by_line_num(&self, line: u32) -> Address {
         self.instruction_addresses[line as usize - 3]
+    }
+
+    pub fn adapter_data(&self) -> AdapterData {
+        AdapterData {
+            start: self.start_load_addr,
+            end: self.end_load_addr,
+            line_offsets: self
+                .instruction_addresses
+                .iter()
+                .map(|addr| (addr - self.start_load_addr) as u32)
+                .collect(),
+        }
     }
 
     pub fn get_source_text(&self) -> String {
