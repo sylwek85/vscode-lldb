@@ -11,7 +11,7 @@ def main():
     workspace_folder = sys.argv[1]
     build_dir = workspace_folder + '/target/debug'
     target_dir = workspace_folder + '/out/adapter2'
-    shutil.rmtree(target_dir)
+    shutil.rmtree(target_dir, ignore_errors=True)
     makedirs(target_dir)
 
     shutil.copy2(workspace_folder + '/adapter2/codelldb.py', target_dir)
@@ -28,10 +28,10 @@ def main():
         shutil.copytree('/Library/Developer/CommandLineTools/Library/PrivateFrameworks/LLDB.framework', target_dir + '/LLDB.framework')
     elif sys.platform.startswith('win32'):
         shutil.copy2(build_dir + '/codelldb.exe', target_dir)
-        shutil.copy2(build_dir + '/libcodelldb.dll', target_dir)
+        shutil.copy2(build_dir + '/codelldb.dll', target_dir)
         shutil.copy2('C:/NW/ll/build/bin/liblldb.dll', target_dir)
         target_site_packages = target_dir + '/../lib/site-packages'
-        shutil.rmtree(target_site_packages)
+        shutil.rmtree(target_site_packages, ignore_errors=True)
         shutil.copytree('C:/NW/ll/build/lib/site-packages', target_site_packages)
     else:
         assert False
