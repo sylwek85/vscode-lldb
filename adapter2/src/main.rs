@@ -23,8 +23,8 @@ fn main() -> Result<(), std::io::Error> {
     unsafe {
         //std::thread::sleep_ms(10000);
 
-        let liblldb_path: &[u8] = if cfg!(os = "macos") {
-            b"liblldb.dylib\0"
+        let liblldb_path: &[u8] = if cfg!(target_os = "macos") {
+            b"LLDB.framework/LLDB\0"
         } else {
             b"liblldb-6.0.so\0"
         };
@@ -34,7 +34,7 @@ fn main() -> Result<(), std::io::Error> {
         }
 
         let mut codelldb_path = env::current_exe()?;
-        if cfg!(os = "macos") {
+        if cfg!(target_os = "macos") {
             codelldb_path.set_file_name("libcodelldb.dylib");
         } else {
             codelldb_path.set_file_name("libcodelldb.so");

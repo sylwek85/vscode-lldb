@@ -3,7 +3,7 @@ extern crate cpp_build;
 fn main() {
     cpp_build::Config::new().include("include").build("src/lldb.rs");
 
-    #[cfg(os = "macos")]
+    #[cfg(target_os = "macos")]
     {
         println!(
             "cargo:rustc-link-search=framework={}",

@@ -22,7 +22,9 @@ def main():
         shutil.copy2('/usr/lib/llvm-6.0/bin/lldb-server-6.0.1', target_dir)
         shutil.copy2('/usr/lib/llvm-6.0/lib/liblldb-6.0.so', target_dir)
     elif sys.platform.startswith('darwin'):
-        pass
+        shutil.copy2(build_dir + '/codelldb', target_dir)
+        shutil.copy2(build_dir + '/libcodelldb.dylib', target_dir)
+        shutil.copytree('/Library/Developer/CommandLineTools/Library/PrivateFrameworks/LLDB.framework', target_dir)
     elif sys.platform.startswith('win32'):
         shutil.copy2(build_dir + '/codelldb.exe', target_dir)
         shutil.copy2(build_dir + '/libcodelldb.dll', target_dir)
