@@ -11,6 +11,7 @@ def main():
     workspace_folder = sys.argv[1]
     build_dir = workspace_folder + '/target/debug'
     target_dir = workspace_folder + '/out/adapter2'
+    shutil.rmtree(target_dir)
     makedirs(target_dir)
 
     shutil.copy2(workspace_folder + '/adapter2/codelldb.py', target_dir)
