@@ -23,14 +23,21 @@ impl SBError {
             return self->Fail();
         })
     }
-    pub fn message(&self) -> &str {
+    pub fn error_string(&self) -> &str {
         let cs_ptr = cpp!(unsafe [self as "SBError*"] -> *const c_char as "const char*" {
                 return self->GetCString();
             });
         match unsafe { CStr::from_ptr(cs_ptr) }.to_str() {
             Ok(s) => s,
-            _ => panic!("Invalid string?"),
+            _ => panic!("Error strig is not valid utf8."),
         }
+    }
+    pub fn set_error_string(&self, string: &str) {
+        with_cstr(string, |string|
+            cpp!(unsafe [self as "SBError*", string as "const char*"] {
+                self->SetErrorString(string);
+            })
+        );
     }
 }
 
@@ -46,12 +53,12 @@ impl fmt::Debug for SBError {
 
 impl fmt::Display for SBError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(self.message())
+        f.write_str(self.error_string())
     }
 }
 
 impl std::error::Error for SBError {
     fn description(&self) -> &str {
-        self.message()
+        self.error_string()
     }
 }

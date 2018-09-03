@@ -59,28 +59,29 @@
 			"name": "debuggee launch check_env",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceRoot}/out/debuggee/debuggee",
+			"program": "${workspaceRoot}/out/debuggee",
 			"args": ["check_env", "FOO", "BAR"]
 		},
 		{
 			"name": "debuggee attach by pid",
 			"type": "lldb",
 			"request": "attach",
-			"program": "${workspaceRoot}/out/debuggee",
+			//"program": "${workspaceRoot}/out/debuggee",
 			"pid": "${command:pickMyProcess}"
 		},
 		{
 			"name": "debuggee attach by name",
 			"type": "lldb",
 			"request": "attach",
-			"program": "${workspaceRoot}/out/debuggee"
+			//"program": "${workspaceRoot}/out/debuggee"
+			"program": "debuggee"
 		},
 		{
 			"name": "debuggee custom vars",
 			"type": "lldb",
 			"request": "custom",
 			"targetCreateCommands": [
-				"target create ${workspaceRoot}/out/debuggee/debuggee"
+				"target create ${workspaceRoot}/out/debuggee"
 			],
 			"processCreateCommands": [
 				"process launch -- vars"

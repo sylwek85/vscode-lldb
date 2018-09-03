@@ -1,5 +1,6 @@
 use std::ops;
 
+#[derive(Debug)]
 pub enum MustInitialize<T> {
     Initialized(T),
     NotInitialized,

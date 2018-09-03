@@ -22,10 +22,40 @@ impl SBTarget {
     }
     pub fn launch(&self, launch_info: &SBLaunchInfo) -> Result<SBProcess, SBError> {
         let mut error = SBError::new();
-
         let process = cpp!(unsafe [self as "SBTarget*", launch_info as "SBLaunchInfo*", mut error as "SBError"] -> SBProcess as "SBProcess" {
             return self->Launch(*launch_info, error);
         });
+        if error.is_success() {
+            Ok(process)
+        } else {
+            Err(error)
+        }
+    }
+    pub fn attach(&self, attach_info: &SBAttachInfo) -> Result<SBProcess, SBError> {
+        let mut error = SBError::new();
+        let process = cpp!(unsafe [self as "SBTarget*", attach_info as "SBAttachInfo*", mut error as "SBError"] -> SBProcess as "SBProcess" {
+            return self->Attach(*attach_info, error);
+        });
+        if error.is_success() {
+            if process.is_valid() {
+                Ok(process)
+            } else {
+                error.set_error_string("Attach failed.");
+                Err(error)
+            }
+        } else {
+            Err(error)
+        }
+    }
+    pub fn attach_to_process_with_id(&self, pid: ProcessID, listener: &SBListener) -> Result<SBProcess, SBError> {
+        let error = SBError::new();
+        let process = {
+            let ref_error = &error;
+            cpp!(unsafe [self as "SBTarget*", pid as "lldb::pid_t", listener as "SBListener*",
+                                ref_error as "SBError*"] -> SBProcess as "SBProcess" {
+                return self->AttachToProcessWithID(*listener, pid, *ref_error);
+            })
+        };
         if error.is_success() {
             Ok(process)
         } else {
@@ -94,9 +124,10 @@ impl SBTarget {
 
 impl fmt::Debug for SBTarget {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let full = f.alternate();
         debug_descr(f, |descr| {
-            cpp!(unsafe [self as "SBTarget*", descr as "SBStream*"] -> bool as "bool" {
-                return self->GetDescription(*descr, eDescriptionLevelBrief);
+            cpp!(unsafe [self as "SBTarget*", descr as "SBStream*", full as "bool"] -> bool as "bool" {
+                return self->GetDescription(*descr, full ? eDescriptionLevelFull : eDescriptionLevelBrief);
             })
         })
     }

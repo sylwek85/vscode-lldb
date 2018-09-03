@@ -677,7 +677,7 @@ impl DebugSession {
         if let Some(commands) = &args.init_commands {
             self.exec_commands(&commands);
         }
-        self.target = Initialized(self.create_target(&args.program)?);
+        self.target = Initialized(self.create_target_from_program(&args.program)?);
         self.disassembly = Initialized(disassembly::AddressSpace::new(&self.target));
         self.send_event(EventBody::initialized);
         Ok(Box::new(move |s: &mut DebugSession| s.complete_launch(args)))
@@ -716,19 +716,11 @@ impl DebugSession {
             let iter = source_map.iter().map(|(k, v)| (k, v.as_ref()));
             self.source_map = source_map::SourceMap::new(iter)?;
         }
-
         self.configure_stdio(&args, &mut launch_info);
-
-        //env::set_var("LLDB_DEBUGSERVER_PATH", "/usr/bin/lldb-server");
-
         launch_info.set_listener(&self.event_listener);
 
         self.process = Initialized(self.target.launch(&launch_info)?);
         self.process_launched = true;
-
-        if self.process.state().is_stopped() {
-            self.notify_process_stopped();
-        }
 
         if let Some(commands) = args.post_run_commands {
             self.exec_commands(&commands);
@@ -737,30 +729,58 @@ impl DebugSession {
         Ok(ResponseBody::launch)
     }
 
-    fn run_in_vscode_terminal(&mut self, terminal_kind: TerminalKind, mut args: Vec<String>) {
-        let terminal_kind = match terminal_kind {
-            TerminalKind::External => "external",
-            TerminalKind::Integrated => {
-                args.insert(0, "\n".into());
-                "integrated"
-            }
-            _ => unreachable!(),
-        };
-        let req_args = RunInTerminalRequestArguments {
-            args: args,
-            cwd: String::new(),
-            env: None,
-            kind: Some(terminal_kind.to_owned()),
-            title: Some("Debuggee".to_owned()),
-        };
-        self.send_request(RequestArguments::runInTerminal(req_args));
-    }
-
     fn handle_attach(&mut self, args: AttachRequestArguments) -> Result<Box<AsyncResponder>, Error> {
-        unimplemented!()
+        if args.program.is_none() && args.pid.is_none() {
+            return Err(Error::UserError(
+                r#"One of the "program" or "pid" properties is required for attach."#.into(),
+            ));
+        }
+        if let Some(commands) = &args.init_commands {
+            self.exec_commands(&commands);
+        }
+        self.target = Initialized(self.debugger.create_target("", None, None, false)?);
+        self.disassembly = Initialized(disassembly::AddressSpace::new(&self.target));
+        self.send_event(EventBody::initialized);
+        Ok(Box::new(move |s: &mut DebugSession| s.complete_attach(args)))
     }
 
-    fn create_target(&self, program: &str) -> Result<SBTarget, Error> {
+    fn complete_attach(&mut self, args: AttachRequestArguments) -> Result<ResponseBody, Error> {
+        if let Some(ref commands) = args.pre_run_commands {
+            self.exec_commands(commands);
+        }
+
+        let mut attach_info = SBAttachInfo::new();
+        if let Some(pid) = args.pid {
+            let pid = match pid {
+                Pid::Number(n) => n as ProcessID,
+                Pid::String(s) => s
+                    .parse()
+                    .map_err(|_| Error::UserError("Process id must me a positive integer.".into()))?,
+            };
+            attach_info.set_process_id(pid);
+        } else if let Some(program) = args.program {
+            attach_info.set_executable(&program);
+        } else {
+            unreachable!()
+        }
+        attach_info.set_wait_for_launch(args.wait_for.unwrap_or(false), true);
+        attach_info.set_ignore_existing(false);
+        attach_info.set_listener(&self.event_listener);
+;
+        self.process = Initialized(self.target.attach(&attach_info)?);
+        self.process_launched = false;
+
+        if !args.stop_on_entry.unwrap_or(false) {
+            self.process.resume();
+        }
+        if let Some(commands) = args.post_run_commands {
+            self.exec_commands(&commands);
+        }
+        self.exit_commands = args.exit_commands;
+        Ok(ResponseBody::attach)
+    }
+
+    fn create_target_from_program(&self, program: &str) -> Result<SBTarget, Error> {
         let target = match self.debugger.create_target(program, None, None, false) {
             Ok(target) => target,
             // TODO: use selected platform instead of cfg!(windows)
@@ -773,10 +793,6 @@ impl DebugSession {
             }
             Err(err) => return Err(err.into()),
         };
-        target.broadcaster().add_listener(
-            &self.event_listener,
-            SBTargetEvent::BroadcastBitBreakpointChanged | SBTargetEvent::BroadcastBitModulesLoaded,
-        );
         Ok(target)
     }
 
@@ -833,6 +849,25 @@ impl DebugSession {
         Ok(())
     }
 
+    fn run_in_vscode_terminal(&mut self, terminal_kind: TerminalKind, mut args: Vec<String>) {
+        let terminal_kind = match terminal_kind {
+            TerminalKind::External => "external",
+            TerminalKind::Integrated => {
+                args.insert(0, "\n".into());
+                "integrated"
+            }
+            _ => unreachable!(),
+        };
+        let req_args = RunInTerminalRequestArguments {
+            args: args,
+            cwd: String::new(),
+            env: None,
+            kind: Some(terminal_kind.to_owned()),
+            title: Some("Debuggee".to_owned()),
+        };
+        self.send_request(RequestArguments::runInTerminal(req_args));
+    }
+
     fn exec_commands(&self, commands: &[String]) {
         let interpreter = self.debugger.command_interpreter();
         let mut command_result = SBCommandReturnObject::new();
@@ -843,9 +878,17 @@ impl DebugSession {
     }
 
     fn handle_configuration_done(&mut self) -> Result<(), Error> {
+        self.target.broadcaster().add_listener(
+            &self.event_listener,
+            SBTargetEvent::BroadcastBitBreakpointChanged | SBTargetEvent::BroadcastBitModulesLoaded,
+        );
         if let Some((request_seq, mut responder)) = self.on_configuration_done.take() {
             let result = responder.call_box((self,));
             self.send_response(request_seq, result);
+
+            if self.process.state().is_stopped() {
+                self.notify_process_stopped();
+            }
         }
         Ok(())
     }
@@ -1424,7 +1467,7 @@ impl DebugSession {
                 self.notify_process_stopped();
                 Ok(())
             } else {
-                Err(Error::UserError(error.message().into()))
+                Err(Error::UserError(error.error_string().into()))
             }
         }
     }
@@ -1444,7 +1487,7 @@ impl DebugSession {
                     all_threads_continued: Some(true),
                 })
             } else {
-                Err(Error::UserError(error.message().into()))
+                Err(Error::UserError(error.error_string().into()))
             }
         }
     }

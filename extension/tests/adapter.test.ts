@@ -327,48 +327,52 @@ async function getFrameLocalsRef(frameId: number): Promise<number> {
     return localsRef;
 }
 
-// suite('Attach tests', () => {
-//     // Many Linux systems restrict tracing to parent processes only, which lldb in this case isn't.
-//     // To allow unrestricted tracing run `echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope`.
-//     if (process.platform == 'linux') {
-//         if (parseInt(fs.readFileSync('/proc/sys/kernel/yama/ptrace_scope', 'ascii')) > 0) {
-//             console.log('ptrace() syscall is locked down: skipping attach tests');
-//             return;
-//         }
-//     }
+suite('Attach tests', () => {
+    // Many Linux systems restrict tracing to parent processes only, which lldb in this case isn't.
+    // To allow unrestricted tracing run `echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope`.
+    if (process.platform == 'linux') {
+        if (parseInt(fs.readFileSync('/proc/sys/kernel/yama/ptrace_scope', 'ascii')) > 0) {
+            console.log('ptrace() syscall is locked down: skipping attach tests');
+            return;
+        }
+    }
 
-//     var debuggeeProc: cp.ChildProcess;
+    var debuggeeProc: cp.ChildProcess;
 
-//     suiteTeardown(() => {
-//         if (debuggeeProc)
-//             debuggeeProc.kill()
-//     })
+    setup(() => createDebugClient());
 
-//     test('attach by pid', async () => {
-//         debuggeeProc = cp.spawn(debuggee, ['inf_loop'], {});
-//         let asyncWaitStopped = waitForStopEvent();
-//         let attachResp = await attach({ program: debuggee, pid: debuggeeProc.pid, stopOnEntry: true });
-//         assert(attachResp.success);
-//         await asyncWaitStopped;
-//     });
+    teardown(() => shutdownDebugClient());
 
-//     test('attach by name', async () => {
-//         let asyncWaitStopped = waitForStopEvent();
-//         let attachResp = await attach({ program: debuggee, stopOnEntry: true });
-//         assert(attachResp.success);
-//         await asyncWaitStopped;
-//     });
+    suiteTeardown(() => {
+        if (debuggeeProc)
+            debuggeeProc.kill()
+    })
 
-//     if (process.platform == 'darwin') {
-//         test('attach by name + waitFor', async () => {
-//             let asyncWaitStopped = waitForStopEvent();
-//             let attachResp = await attach({ program: debuggee, waitFor: true, stopOnEntry: true });
-//             assert(attachResp.success);
-//             debuggeeProc = cp.spawn(debuggee, ['inf_loop'], {});
-//             await asyncWaitStopped;
-//         });
-//     }
-// })
+    test('attach by pid', async () => {
+        debuggeeProc = cp.spawn(debuggee, ['inf_loop'], {});
+        let asyncWaitStopped = waitForStopEvent();
+        let attachResp = await attach({ program: debuggee, pid: debuggeeProc.pid, stopOnEntry: true });
+        assert(attachResp.success);
+        await asyncWaitStopped;
+    });
+
+    test('attach by name', async () => {
+        let asyncWaitStopped = waitForStopEvent();
+        let attachResp = await attach({ program: debuggee, stopOnEntry: true });
+        assert(attachResp.success);
+        await asyncWaitStopped;
+    });
+
+    if (process.platform == 'darwin') {
+        test('attach by name + waitFor', async () => {
+            let asyncWaitStopped = waitForStopEvent();
+            let attachResp = await attach({ program: debuggee, waitFor: true, stopOnEntry: true });
+            assert(attachResp.success);
+            debuggeeProc = cp.spawn(debuggee, ['inf_loop'], {});
+            await asyncWaitStopped;
+        });
+    }
+})
 
 suite('Rust tests', () => {
     setup(() => createDebugClient());

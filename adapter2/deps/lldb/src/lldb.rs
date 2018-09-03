@@ -23,6 +23,7 @@ pub type Address = u64;
 pub type ThreadID = u64;
 pub type BreakpointID = u32;
 pub type UserID = u64;
+pub type ProcessID = u64;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -90,6 +91,7 @@ mod strings;
 use strings::*;
 
 mod sbaddress;
+mod sbattachinfo;
 mod sbbreakpoint;
 mod sbbreakpointlocation;
 mod sbbroadcaster;
@@ -119,6 +121,7 @@ mod sbvalue;
 mod sbvaluelist;
 
 pub use sbaddress::*;
+pub use sbattachinfo::*;
 pub use sbbreakpoint::*;
 pub use sbbreakpointlocation::*;
 pub use sbbroadcaster::*;
