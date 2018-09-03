@@ -24,7 +24,7 @@ def main():
     elif sys.platform.startswith('darwin'):
         shutil.copy2(build_dir + '/codelldb', target_dir)
         shutil.copy2(build_dir + '/libcodelldb.dylib', target_dir)
-        shutil.copytree('/Library/Developer/CommandLineTools/Library/PrivateFrameworks/LLDB.framework', target_dir)
+        shutil.copytree('/Library/Developer/CommandLineTools/Library/PrivateFrameworks/LLDB.framework', target_dir + '/LLDB.framework')
     elif sys.platform.startswith('win32'):
         shutil.copy2(build_dir + '/codelldb.exe', target_dir)
         shutil.copy2(build_dir + '/libcodelldb.dll', target_dir)
